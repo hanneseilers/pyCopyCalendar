@@ -25,6 +25,8 @@ import yaml
 from icalendar import Calendar as ICalendar
 from icalendar import Event as ICalEvent
 
+DEFAULT_USER_AGENT = "pyCopyCalendar/1.0"
+
 UID_PREFIX = "pycopycal-"
 MANAGED_PROP = "X-PYCOPYCAL-MANAGED"
 SOURCE_UID_PROP = "X-PYCOPYCAL-SOURCE-UID"
@@ -44,6 +46,7 @@ class Config:
     username: str
     password: str
     verify_ssl: bool
+    user_agent: str
     source_calendars: list
     target_calendar: str
     locations: list
@@ -76,6 +79,10 @@ def build_client(nc: dict) -> caldav.DAVClient:
         username=nc["username"],
         password=resolve_password(nc),
         ssl_verify_cert=verify_ssl,
+        # Some hosting providers put a WAF in front of Nextcloud that blocks
+        # WebDAV requests carrying the HTTP client library's default
+        # User-Agent (while allowing e.g. curl) - so send a plain one.
+        headers={"User-Agent": nc.get("user_agent", DEFAULT_USER_AGENT)},
     )
 
 
@@ -108,6 +115,7 @@ def load_config(raw: dict) -> Config:
         username=nc["username"],
         password=password,
         verify_ssl=nc.get("verify_ssl", True),
+        user_agent=nc.get("user_agent", DEFAULT_USER_AGENT),
         source_calendars=list(source_calendars),
         target_calendar=sync_cfg["target_calendar"],
         locations=locations,
@@ -299,6 +307,7 @@ def sync(config: Config) -> None:
         username=config.username,
         password=config.password,
         ssl_verify_cert=config.verify_ssl,
+        headers={"User-Agent": config.user_agent},
     )
     principal = client.principal()
 

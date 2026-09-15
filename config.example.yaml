@@ -23,6 +23,15 @@ nextcloud:
 
   verify_ssl: true
 
+  # Optional: HTTP User-Agent header to send. Defaults to "pyCopyCalendar/1.0"
+  # instead of the Python HTTP library's own identifier, because some
+  # hosting providers put a firewall in front of Nextcloud that blocks
+  # WebDAV requests from known library user agents while still allowing
+  # e.g. curl. If you get a bare "405 Method Not Allowed" from nginx (with
+  # none of Nextcloud's usual response headers), try changing this to
+  # something else, e.g. a real browser's user agent string.
+  # user_agent: "pyCopyCalendar/1.0"
+
 sync:
   # Display name(s) of the calendar(s) to read events from (exactly as
   # shown in the Nextcloud Calendar app / calendar settings). One or many.
