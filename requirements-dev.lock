@@ -1,0 +1,8 @@
+# Additional pinned dependencies needed only to run the test suite locally.
+# Install after requirements.lock: pip install -r requirements.lock -r requirements-dev.lock
+freezegun==1.5.5
+iniconfig==2.3.0
+packaging==26.3
+pluggy==1.6.0
+Pygments==2.21.0
+pytest==9.1.1

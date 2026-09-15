@@ -1,0 +1,32 @@
+[project]
+name = "calendar-sync"
+version = "1.0.0"
+description = "One-way Nextcloud calendar location mirror for periodic (cron) execution on shared webspace"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "caldav==3.3.0",
+    "icalendar==7.3.0",
+    "recurring-ical-events==3.8.2",
+    "tzdata==2026.4",
+]
+
+[project.scripts]
+calendar-sync = "calendar_sync.__main__:main"
+
+[project.optional-dependencies]
+test = [
+    "pytest==9.1.1",
+    "freezegun==1.5.5",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
