@@ -339,9 +339,10 @@ def run(
     dry_run: bool,
     allow_large_delete: bool = False,
     now: datetime | None = None,
+    run_id: str | None = None,
 ) -> RunSummary:
     """Execute one full reconciliation run (Phases A-E)."""
-    run_id = str(uuid.uuid4())
+    run_id = run_id or str(uuid.uuid4())
     now = now or datetime.now(timezone.utc)
     window_start, window_end = compute_window(config, now=now)
     repo.start_run(

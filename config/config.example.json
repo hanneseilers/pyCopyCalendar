@@ -1,0 +1,74 @@
+{
+  "nextcloud": {
+    "base_url": "https://cloud.example.invalid/remote.php/dav/",
+    "credentials_file": "secrets/nextcloud.env",
+    "verify_tls": true,
+    "connect_timeout_seconds": 10,
+    "read_timeout_seconds": 45,
+    "user_agent": "calendar-sync/1.0"
+  },
+  "sources": [
+    {
+      "id": "department-a",
+      "calendar_url": "https://cloud.example.invalid/remote.php/dav/calendars/user/source-a/",
+      "enabled": true
+    },
+    {
+      "id": "department-b",
+      "calendar_url": "https://cloud.example.invalid/remote.php/dav/calendars/user/source-b/",
+      "enabled": true
+    }
+  ],
+  "target": {
+    "calendar_url": "https://cloud.example.invalid/remote.php/dav/calendars/user/location-view/"
+  },
+  "location_filter": {
+    "match_mode": "normalized_exact",
+    "case_sensitive": false,
+    "locations": [
+      {
+        "canonical": "Berlin Office",
+        "aliases": ["Berlin Office", "Office Berlin", "BER Room"]
+      },
+      {
+        "canonical": "Hamburg Office",
+        "aliases": ["Hamburg Office", "Office Hamburg"]
+      }
+    ]
+  },
+  "window": {
+    "timezone": "Europe/Berlin",
+    "lookback_days": 7,
+    "lookahead_days": 180,
+    "outside_window_policy": "retain"
+  },
+  "mirroring": {
+    "copy_description": true,
+    "copy_url": true,
+    "copy_categories": true,
+    "copy_alarms": false,
+    "copy_attendees": false,
+    "copy_organizer": false,
+    "strip_fields": []
+  },
+  "storage": {
+    "database": "data/sync.sqlite3",
+    "log_file": "logs/sync.log",
+    "lock_file": "run/calendar-sync.lock",
+    "backup_directory": "data/backups",
+    "backup_retention": 10
+  },
+  "safety": {
+    "dry_run_default": true,
+    "max_deletes_absolute": 50,
+    "max_delete_ratio": 0.25,
+    "max_runtime_seconds": 720,
+    "require_all_sources": true,
+    "max_expansion_count": 5000
+  },
+  "logging": {
+    "level": "INFO",
+    "max_bytes": 1000000,
+    "backup_count": 5
+  }
+}
