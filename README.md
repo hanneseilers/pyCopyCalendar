@@ -1,8 +1,8 @@
 # pyCopyCalendar
 
-Copies/syncs events from one Nextcloud calendar into a second calendar in
-the same Nextcloud instance - but only events whose **location** contains
-one of several configured places.
+Copies/syncs events from one or more Nextcloud calendars into a single
+target calendar in the same Nextcloud instance - but only events whose
+**location** contains one of several configured places.
 
 Every run fully reconciles the target calendar: new matching events are
 created, changed ones updated, and events that no longer match or were
@@ -21,8 +21,16 @@ cp config.example.yaml config.yaml
 
 Edit `config.yaml` (see the comments inside): Nextcloud URL, username, an
 app password (Nextcloud -> Settings -> Security -> "Create new app
-password"), the display names of the source/target calendars, and the list
-of locations to filter on.
+password"), the display names of the source calendar(s) and the target
+calendar, and the list of locations to filter on.
+
+To find the exact calendar names to use (calendars shared with you often
+show a different, friendlier name in the Nextcloud web UI than their real
+CalDAV name):
+
+```bash
+.venv/bin/python copy_calendar.py --list
+```
 
 ## Testing
 

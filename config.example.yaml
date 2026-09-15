@@ -24,9 +24,11 @@ nextcloud:
   verify_ssl: true
 
 sync:
-  # Display name of the calendar to read events from (exactly as shown in
-  # the Nextcloud Calendar app / calendar settings).
-  source_calendar: "Personal"
+  # Display name(s) of the calendar(s) to read events from (exactly as
+  # shown in the Nextcloud Calendar app / calendar settings). One or many.
+  source_calendars:
+    - "Personal"
+    - "Work"
 
   # Display name of the calendar to copy matching events into.
   # It is created automatically on first run if it does not exist yet.
