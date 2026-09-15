@@ -80,20 +80,51 @@ class ChangeType(str, Enum):
 
 
 @dataclass(frozen=True)
-class SourceOccurrence:
-    """One eligible, materialized source occurrence ready for mirroring."""
+class RawOccurrence:
+    """One materialized source occurrence (recurrence expansion already
+    applied) before location filtering and transformation.
+
+    `vevent` is the fully resolved icalendar Event for this occurrence -
+    the master for a non-recurring event, or the merged
+    exception/instance component for a recurring one - as produced by
+    recurrence.py. `cancelled` is True for a STATUS:CANCELLED exception,
+    which must never become a desired instance regardless of location.
+    """
 
     source_id: str
     source_uid: str
     recurrence_key: RecurrenceKey
     source_href: str
     source_etag: str | None
+    vevent: object  # icalendar.cal.Event; typed loosely to avoid importing icalendar here
     location: str
+    start: datetime
+    end: datetime
+    all_day: bool
+    cancelled: bool = False
+
+    @property
+    def instance_key(self) -> str:
+        return instance_key(self.source_id, self.source_uid, self.recurrence_key)
+
+
+@dataclass(frozen=True)
+class DesiredInstance:
+    """One eligible occurrence, transformed into the standalone target
+    VEVENT that should exist in the target calendar."""
+
+    source_id: str
+    source_uid: str
+    recurrence_key: RecurrenceKey
+    source_href: str
+    source_etag: str | None
     canonical_location: str
     start: datetime
     end: datetime
     all_day: bool
+    summary: str
     ics_bytes: bytes  # standalone VCALENDAR containing the transformed VEVENT
+    fingerprint: str
 
     @property
     def instance_key(self) -> str:
