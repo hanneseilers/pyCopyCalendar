@@ -91,6 +91,7 @@ class StorageConfig:
     log_file: str
     lock_file: str
     backup_directory: str
+    backup_retention: int = 10
 
 
 @dataclass(frozen=True)
@@ -264,7 +265,10 @@ def load_config(config_path: Path, *, project_root: Path) -> Config:
         log_file=str(storage_raw.get("log_file", "logs/sync.log")),
         lock_file=str(storage_raw.get("lock_file", "run/calendar-sync.lock")),
         backup_directory=str(storage_raw.get("backup_directory", "data/backups")),
+        backup_retention=int(storage_raw.get("backup_retention", 10)),
     )
+    if storage.backup_retention < 1:
+        raise ConfigError("storage.backup_retention must be >= 1.")
     for label, value in (
         ("storage.database", storage.database),
         ("storage.log_file", storage.log_file),
