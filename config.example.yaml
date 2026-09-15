@@ -1,0 +1,54 @@
+# pyCopyCalendar configuration
+#
+# Copy this file to config.yaml and fill in your own values.
+# config.yaml contains credentials and must NOT be committed to version control.
+
+nextcloud:
+  # Base URL of your Nextcloud's CalDAV endpoint. For a Nextcloud hosted at
+  # IONOS this is normally just your own domain with the standard Nextcloud
+  # CalDAV path:
+  url: "https://your-nextcloud.example.com/remote.php/dav/"
+  username: "your-nextcloud-username"
+
+  # Use a Nextcloud "app password" here, NOT your real login password:
+  # Nextcloud web UI -> Settings -> Security -> "Create new app password".
+  # That way you can revoke it any time without changing your main password,
+  # and it keeps working even if you have two-factor authentication enabled.
+  password: "your-app-password"
+
+  # Alternative to the line above: keep the secret out of this file entirely
+  # and read it from an environment variable instead (only used if
+  # 'password' above is empty/removed).
+  # password_env: "NEXTCLOUD_PASSWORD"
+
+  verify_ssl: true
+
+sync:
+  # Display name of the calendar to read events from (exactly as shown in
+  # the Nextcloud Calendar app / calendar settings).
+  source_calendar: "Personal"
+
+  # Display name of the calendar to copy matching events into.
+  # It is created automatically on first run if it does not exist yet.
+  target_calendar: "Filtered Events"
+
+  # An event is copied whenever its "Location" field contains ANY of these
+  # strings (simple substring match, not a full address match).
+  locations:
+    - "Office"
+    - "Home Office"
+    - "Berlin"
+
+  match_case_sensitive: false
+
+  # Optional: only look at events within a rolling time window instead of
+  # the whole calendar (recommended for large/long-running calendars).
+  # Remove/comment out both lines to sync every event regardless of date.
+  time_window:
+    past_days: 30
+    future_days: 365
+
+logging:
+  level: INFO
+  # Optional: also write log output to a file (in addition to stdout).
+  # file: "sync.log"

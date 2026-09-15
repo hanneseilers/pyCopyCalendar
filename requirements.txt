@@ -1,0 +1,3 @@
+caldav>=2.0
+PyYAML>=6.0
+icalendar>=5.0
