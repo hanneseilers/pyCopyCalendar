@@ -1,19 +1,19 @@
-"""JSON configuration loading and validation.
+"""YAML configuration loading and validation.
 
-JSON is used instead of TOML so Python 3.10 (which lacks `tomllib`) needs
-no extra dependency. All paths in the config are project-relative and are
-validated through `paths.resolve_project_path` before use; all calendar
-URLs are validated through `urlsafety.canonicalize_url` and checked for
-source/target separation before any network or filesystem write path
-opens - see acceptance criteria in TECHNICAL_SPECIFICATION.md section 21.
+All paths in the config are project-relative and are validated through
+`paths.resolve_project_path` before use; all calendar URLs are validated
+through `urlsafety.canonicalize_url` and checked for source/target
+separation before any network or filesystem write path opens - see
+acceptance criteria in TECHNICAL_SPECIFICATION.md section 21.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import yaml
 
 from .paths import PathEscapesProjectRootError, resolve_project_path
 from .textnorm import normalize_location
@@ -36,7 +36,7 @@ class ConfigError(ValueError):
     """Configuration is missing, malformed, or fails validation.
 
     Messages are always safe to log: they never include secret values,
-    because secrets never enter the JSON config in the first place.
+    because secrets never enter the YAML config in the first place.
     """
 
 
@@ -154,11 +154,11 @@ def load_config(config_path: Path, *, project_root: Path) -> Config:
     if not config_path.is_file():
         raise ConfigError(f"Config file not found: {config_path}")
     try:
-        raw = json.loads(config_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ConfigError(f"Config file is not valid JSON: {exc}") from exc
+        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"Config file is not valid YAML: {exc}") from exc
     if not isinstance(raw, dict):
-        raise ConfigError("Config file must contain a JSON object at the top level.")
+        raise ConfigError("Config file must contain a mapping at the top level.")
 
     nc_raw = _require(raw, "nextcloud", "$")
     nc = NextcloudConfig(

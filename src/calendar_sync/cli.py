@@ -44,8 +44,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("config/config.json"),
-        help="Path to the JSON config file (relative to the project root by default).",
+        default=Path("config/config.yaml"),
+        help="Path to the YAML config file (relative to the project root by default).",
     )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true", help="Force dry-run for this invocation.")

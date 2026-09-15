@@ -3,9 +3,8 @@ fake DAV transport, run inside an isolated fake project root (so this
 never touches the real repo's config/secrets/data directories).
 """
 
-import json
-
 import pytest
+import yaml
 
 from calendar_sync import cli
 from fake_dav import FakeObject
@@ -41,7 +40,7 @@ def write_config(project, **overrides):
         "window": {"lookback_days": 7, "lookahead_days": 180},
     }
     config.update(overrides)
-    (project / "config" / "config.json").write_text(json.dumps(config))
+    (project / "config" / "config.yaml").write_text(yaml.safe_dump(config))
     return config
 
 
@@ -55,7 +54,7 @@ def test_validate_config_ok(project, capsys):
 def test_validate_config_rejects_broken_config(project, capsys):
     config = write_config(project)
     del config["target"]
-    (project / "config" / "config.json").write_text(json.dumps(config))
+    (project / "config" / "config.yaml").write_text(yaml.safe_dump(config))
     rc = cli.main(["--validate-config"])
     assert rc == cli.EXIT_CONFIG_ERROR
 

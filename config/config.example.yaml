@@ -1,0 +1,110 @@
+# calendar-sync configuration
+#
+# Copy this file to config.yaml and fill in your own values.
+# config.yaml is gitignored and must NOT be committed to version control.
+
+nextcloud:
+  # Base URL of your Nextcloud's CalDAV endpoint.
+  base_url: "https://cloud.example.invalid/remote.php/dav/"
+
+  # Path (relative to the project root) to the credentials file. See
+  # secrets/nextcloud.env.example for its format.
+  credentials_file: "secrets/nextcloud.env"
+
+  verify_tls: true
+  connect_timeout_seconds: 10
+  read_timeout_seconds: 45
+
+  # Some hosting providers put a firewall in front of Nextcloud that
+  # blocks WebDAV requests carrying a Python HTTP library's default
+  # User-Agent (while allowing e.g. curl) - this application already
+  # talks to the server through a stdlib-only transport to work around
+  # that (see README's "Networking note"); this setting only matters if
+  # a firewall additionally filters on the User-Agent text itself.
+  user_agent: "calendar-sync/1.0"
+
+# Display name(s) don't matter here - use the calendar's exact CalDAV
+# collection URL (see README's "Finding calendar URLs"). "id" must be
+# stable and unique; it namespaces UIDs so the same event UID from two
+# different source calendars never collides in the target.
+sources:
+  - id: "department-a"
+    calendar_url: "https://cloud.example.invalid/remote.php/dav/calendars/user/source-a/"
+    enabled: true
+  - id: "department-b"
+    calendar_url: "https://cloud.example.invalid/remote.php/dav/calendars/user/source-b/"
+    enabled: true
+
+target:
+  # The calendar events are mirrored into. Must share the same Nextcloud
+  # origin as the sources, must not equal or be nested inside any source
+  # collection, and is NOT created automatically - create it once in the
+  # Nextcloud web UI first.
+  calendar_url: "https://cloud.example.invalid/remote.php/dav/calendars/user/location-view/"
+
+location_filter:
+  # Only "normalized_exact" is supported: the complete normalized
+  # LOCATION must equal a normalized alias (not a substring match, to
+  # avoid accidentally matching the wrong place).
+  match_mode: "normalized_exact"
+  case_sensitive: false
+
+  # One entry per place you care about: a canonical name plus every way
+  # that place might actually be written in someone's LOCATION field.
+  locations:
+    - canonical: "Berlin Office"
+      aliases: ["Berlin Office", "Office Berlin", "BER Room"]
+    - canonical: "Hamburg Office"
+      aliases: ["Hamburg Office", "Office Hamburg"]
+
+window:
+  timezone: "Europe/Berlin"
+  lookback_days: 7
+  lookahead_days: 180
+  # Only "retain" is supported: events wholly outside the current
+  # rolling window are not deleted solely because time advanced.
+  outside_window_policy: "retain"
+
+mirroring:
+  # Per-field toggles for what gets copied into the mirrored event.
+  copy_description: true
+  copy_url: true
+  copy_categories: true
+  # Off by default: ORGANIZER/ATTENDEE/VALARM would otherwise turn the
+  # mirror into a source of invitations or duplicate reminders.
+  copy_alarms: false
+  copy_attendees: false
+  copy_organizer: false
+
+  # Optional: additional iCalendar field names to drop from the copies,
+  # e.g. to keep private details out of a shared calendar. UID, DTSTAMP,
+  # DTSTART and RECURRENCE-ID can never be stripped, since removing them
+  # would break either the calendar format or the sync's ability to
+  # match events.
+  strip_fields: []
+  #   - DESCRIPTION
+
+storage:
+  database: "data/sync.sqlite3"
+  log_file: "logs/sync.log"
+  lock_file: "run/calendar-sync.lock"
+  backup_directory: "data/backups"
+  backup_retention: 10
+
+safety:
+  # If true, --apply is required for any invocation to actually write.
+  dry_run_default: true
+  # Absolute and ratio-based limits on planned deletes, checked before
+  # any write; see README's "Deletion safety" and --allow-large-delete.
+  max_deletes_absolute: 50
+  max_delete_ratio: 0.25
+  max_runtime_seconds: 720
+  # If true, any source that fails to read authoritatively aborts the
+  # whole run with zero target mutations.
+  require_all_sources: true
+  max_expansion_count: 5000
+
+logging:
+  level: "INFO"
+  max_bytes: 1000000
+  backup_count: 5

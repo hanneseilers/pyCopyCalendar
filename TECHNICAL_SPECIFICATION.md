@@ -182,8 +182,8 @@ nextcloud-calendar-sync/
 ├── .gitignore
 ├── .htaccess
 ├── config/
-│   ├── config.example.json
-│   ├── config.json
+│   ├── config.example.yaml
+│   ├── config.yaml
 │   └── .htaccess
 ├── secrets/
 │   ├── nextcloud.env
@@ -221,7 +221,7 @@ The repository must ignore at least:
 ```gitignore
 .venv/
 vendor/
-config/config.json
+config/config.yaml
 secrets/
 data/*.sqlite3*
 data/backups/
@@ -233,74 +233,68 @@ __pycache__/
 
 ## 7. Configuration
 
-JSON is used to avoid requiring `tomllib`, which is not part of Python 3.10. Example `config/config.example.json`:
+> **Adaptation note:** this section originally specified JSON (to avoid
+> requiring `tomllib`, not part of Python 3.10). The operator requested
+> YAML instead for its comments and more readable multi-line syntax;
+> `PyYAML` (already a transitive dependency of this project's CalDAV/
+> iCalendar stack) is used via `yaml.safe_load`. The schema, validation
+> rules, and every field below are unchanged - only the file format is
+> different. Example `config/config.example.yaml`:
 
-```json
-{
-  "nextcloud": {
-    "base_url": "https://cloud.example.invalid/remote.php/dav/",
-    "credentials_file": "secrets/nextcloud.env",
-    "verify_tls": true,
-    "connect_timeout_seconds": 10,
-    "read_timeout_seconds": 45
-  },
-  "sources": [
-    {
-      "id": "department-a",
-      "calendar_url": "https://cloud.example.invalid/remote.php/dav/calendars/user/source-a/",
-      "enabled": true
-    },
-    {
-      "id": "department-b",
-      "calendar_url": "https://cloud.example.invalid/remote.php/dav/calendars/user/source-b/",
-      "enabled": true
-    }
-  ],
-  "target": {
-    "calendar_url": "https://cloud.example.invalid/remote.php/dav/calendars/user/location-view/"
-  },
-  "location_filter": {
-    "match_mode": "normalized_exact",
-    "case_sensitive": false,
-    "locations": [
-      {
-        "canonical": "Berlin Office",
-        "aliases": ["Berlin Office", "Office Berlin", "BER Room"]
-      },
-      {
-        "canonical": "Hamburg Office",
-        "aliases": ["Hamburg Office", "Office Hamburg"]
-      }
-    ]
-  },
-  "window": {
-    "timezone": "Europe/Berlin",
-    "lookback_days": 7,
-    "lookahead_days": 180,
-    "outside_window_policy": "retain"
-  },
-  "mirroring": {
-    "copy_description": true,
-    "copy_url": true,
-    "copy_categories": true,
-    "copy_alarms": false,
-    "copy_attendees": false,
-    "copy_organizer": false
-  },
-  "storage": {
-    "database": "data/sync.sqlite3",
-    "log_file": "logs/sync.log",
-    "lock_file": "run/calendar-sync.lock",
-    "backup_directory": "data/backups"
-  },
-  "safety": {
-    "dry_run_default": true,
-    "max_deletes_absolute": 50,
-    "max_delete_ratio": 0.25,
-    "max_runtime_seconds": 720,
-    "require_all_sources": true
-  }
-}
+```yaml
+nextcloud:
+  base_url: "https://cloud.example.invalid/remote.php/dav/"
+  credentials_file: "secrets/nextcloud.env"
+  verify_tls: true
+  connect_timeout_seconds: 10
+  read_timeout_seconds: 45
+
+sources:
+  - id: "department-a"
+    calendar_url: "https://cloud.example.invalid/remote.php/dav/calendars/user/source-a/"
+    enabled: true
+  - id: "department-b"
+    calendar_url: "https://cloud.example.invalid/remote.php/dav/calendars/user/source-b/"
+    enabled: true
+
+target:
+  calendar_url: "https://cloud.example.invalid/remote.php/dav/calendars/user/location-view/"
+
+location_filter:
+  match_mode: "normalized_exact"
+  case_sensitive: false
+  locations:
+    - canonical: "Berlin Office"
+      aliases: ["Berlin Office", "Office Berlin", "BER Room"]
+    - canonical: "Hamburg Office"
+      aliases: ["Hamburg Office", "Office Hamburg"]
+
+window:
+  timezone: "Europe/Berlin"
+  lookback_days: 7
+  lookahead_days: 180
+  outside_window_policy: "retain"
+
+mirroring:
+  copy_description: true
+  copy_url: true
+  copy_categories: true
+  copy_alarms: false
+  copy_attendees: false
+  copy_organizer: false
+
+storage:
+  database: "data/sync.sqlite3"
+  log_file: "logs/sync.log"
+  lock_file: "run/calendar-sync.lock"
+  backup_directory: "data/backups"
+
+safety:
+  dry_run_default: true
+  max_deletes_absolute: 50
+  max_delete_ratio: 0.25
+  max_runtime_seconds: 720
+  require_all_sources: true
 ```
 
 Local `secrets/nextcloud.env`:
@@ -562,7 +556,7 @@ Before a schema migration, create a timestamped backup below `data/backups/` and
 
 1. Resolve the project root and validate every path.
 2. Acquire a non-blocking exclusive lock at `run/calendar-sync.lock`.
-3. Read and validate JSON configuration.
+3. Read and validate YAML configuration.
 4. Parse `secrets/nextcloud.env` as data, not shell code.
 5. Initialize redacted logging and create a run record.
 6. Open SQLite and apply safe migrations.

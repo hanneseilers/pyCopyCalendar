@@ -10,6 +10,7 @@ dependencies = [
     "icalendar==7.3.0",
     "recurring-ical-events==3.8.2",
     "tzdata==2026.4",
+    "PyYAML==6.0.3",
 ]
 
 [project.scripts]

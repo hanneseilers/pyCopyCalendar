@@ -1,6 +1,5 @@
-import json
-
 import pytest
+import yaml
 
 from calendar_sync.config import ConfigError, load_config
 
@@ -25,8 +24,8 @@ def base_config(**overrides):
 def write_config(tmp_path, data) -> tuple:
     config_dir = tmp_path / "config"
     config_dir.mkdir()
-    path = config_dir / "config.json"
-    path.write_text(json.dumps(data))
+    path = config_dir / "config.yaml"
+    path.write_text(yaml.safe_dump(data))
     return path, tmp_path
 
 
@@ -120,7 +119,16 @@ def test_rejects_unsupported_match_mode(tmp_path):
 
 def test_missing_config_file_raises(tmp_path):
     with pytest.raises(ConfigError):
-        load_config(tmp_path / "does-not-exist.json", project_root=tmp_path)
+        load_config(tmp_path / "does-not-exist.yaml", project_root=tmp_path)
+
+
+def test_malformed_yaml_raises(tmp_path):
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    path = config_dir / "config.yaml"
+    path.write_text("nextcloud: [this is not: closed properly\n")
+    with pytest.raises(ConfigError, match="YAML"):
+        load_config(path, project_root=tmp_path)
 
 
 def test_defaults_are_applied(tmp_path):

@@ -35,7 +35,7 @@ from. This README covers day-to-day setup and operation.
 cd calendar-sync
 python3 -m venv .venv          # optional but recommended; not required by the app itself
 .venv/bin/pip install -r requirements.lock
-cp config/config.example.json config/config.json
+cp config/config.example.yaml config/config.yaml
 cp secrets/nextcloud.env.example secrets/nextcloud.env
 ```
 
@@ -60,8 +60,8 @@ executed, and is gitignored; never commit it.
 
 ### Configuration
 
-Edit `config/config.json` (see the comments and defaults in
-`config/config.example.json`):
+Edit `config/config.yaml` (see the comments and defaults in
+`config/config.example.yaml`):
 
 - `nextcloud.base_url` — your Nextcloud's CalDAV root, normally
   `https://your-domain/remote.php/dav/`.
@@ -138,7 +138,7 @@ user agent string.
 .venv/bin/python -m calendar_sync --validate-config
 ```
 
-Loads and validates `config/config.json` (source/target separation,
+Loads and validates `config/config.yaml` (source/target separation,
 path containment, alias collisions, …) without touching credentials or
 the network at all.
 
@@ -184,11 +184,11 @@ that single invocation.
 
 ## Invocation via cron
 
-`config/config.json` is looked up relative to the project root by
+`config/config.yaml` is looked up relative to the project root by
 default, so a cron entry just needs the full paths:
 
 ```
-/path/to/calendar-sync/.venv/bin/python -m calendar_sync --config config/config.json --apply
+/path/to/calendar-sync/.venv/bin/python -m calendar_sync --config config/config.yaml --apply
 ```
 
 (run from any working directory — every path the application uses is
