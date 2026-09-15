@@ -45,6 +45,10 @@ automatically just needs the full path to the venv Python and the script:
 Schedule this command to run once a day (e.g. via cron) to keep both
 calendars in sync.
 
+If the project folder lives inside a web-accessible document root (common
+on shared hosting), the included `.htaccess` blocks all HTTP access to it
+(Apache only) - only cron ever needs to reach these files.
+
 ## Configuration options (overview)
 
 See `config.example.yaml` for details, including:

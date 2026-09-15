@@ -1,0 +1,9 @@
+# This directory is only meant to be invoked by cron, never over HTTP.
+# Block all web access, including config.yaml and any log files.
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>
