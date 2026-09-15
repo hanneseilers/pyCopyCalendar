@@ -69,6 +69,83 @@ def _copy_all(source: ICalEvent, target: ICalEvent, name: str) -> None:
         target.add(name, value)
 
 
+def _effective_end(vevent: ICalEvent, start):
+    dtend = vevent.get("DTEND")
+    if dtend is not None:
+        return dtend.dt
+    duration = vevent.get("DURATION")
+    if duration is not None:
+        return start + duration.dt
+    return start
+
+
+def _stripped_fields(config: MirroringConfig) -> set[str]:
+    stripped = set(config.strip_fields) | _HARD_EXCLUDED
+    if not config.copy_organizer:
+        stripped.add("ORGANIZER")
+    if not config.copy_attendees:
+        stripped.add("ATTENDEE")
+    return stripped
+
+
+def compute_fingerprint(vevent: ICalEvent, config: MirroringConfig) -> str:
+    """Semantic fingerprint of exactly the fields that end up in the
+    target VEVENT under `config` - and nothing else.
+
+    Deliberately callable on *any* VEVENT, not just a freshly-transformed
+    one: reconcile.py also calls this on a target event re-read from the
+    server to detect a manual edit that left the object's own
+    X-CALMIRROR-FINGERPRINT property untouched. Restricting the fields
+    considered to exactly what `config` would copy is what keeps the two
+    calls comparable - including a field once, unconditionally, would
+    make a stripped/disabled field's absence in the real target register
+    as a permanent, spurious "changed" on every run.
+    """
+    stripped = _stripped_fields(config)
+    fields: dict = {}
+
+    if "SUMMARY" not in stripped:
+        fields["summary"] = str(vevent.get("SUMMARY", ""))
+
+    start = vevent["DTSTART"].dt
+    fields["dtstart"] = _dt_field(start)
+    fields["dtend"] = _dt_field(_effective_end(vevent, start))
+
+    if "LOCATION" not in stripped:
+        fields["location"] = str(vevent.get("LOCATION", ""))
+
+    for name, enabled in (
+        ("DESCRIPTION", config.copy_description),
+        ("URL", config.copy_url),
+        ("CATEGORIES", config.copy_categories),
+    ):
+        if enabled and name not in stripped and vevent.get(name) is not None:
+            value = vevent.get(name)
+            fields[name.lower()] = sorted(str(v) for v in value) if isinstance(value, list) else str(value)
+
+    for name in ("CLASS", "TRANSP"):
+        if name not in stripped and vevent.get(name) is not None:
+            fields[name.lower()] = str(vevent.get(name))
+
+    if config.copy_organizer and "ORGANIZER" not in stripped and vevent.get("ORGANIZER") is not None:
+        fields["organizer"] = str(vevent.get("ORGANIZER"))
+
+    if config.copy_attendees and "ATTENDEE" not in stripped and vevent.get("ATTENDEE") is not None:
+        value = vevent.get("ATTENDEE")
+        fields["attendees"] = sorted(str(v) for v in value) if isinstance(value, list) else [str(value)]
+
+    if config.copy_alarms:
+        alarms = [
+            {"action": str(sub.get("ACTION", "")), "trigger": str(sub.get("TRIGGER", ""))}
+            for sub in vevent.subcomponents
+            if sub.name == "VALARM"
+        ]
+        if alarms:
+            fields["alarms"] = alarms
+
+    return hashlib.sha256(json.dumps(fields, sort_keys=True, ensure_ascii=True).encode("utf-8")).hexdigest()
+
+
 def build_target_event(
     occurrence: RawOccurrence,
     canonical_location: str,
@@ -81,24 +158,16 @@ def build_target_event(
     VEVENT and its semantic fingerprint."""
     now = now or datetime.now(timezone.utc)
     src = occurrence.vevent
-    stripped = set(config.strip_fields) | _HARD_EXCLUDED
-    if not config.copy_organizer:
-        stripped.add("ORGANIZER")
-    if not config.copy_attendees:
-        stripped.add("ATTENDEE")
-    # VALARM is a subcomponent, not a property, so it isn't part of
-    # `stripped` - copy_alarms alone gates it, in the loop below.
+    stripped = _stripped_fields(config)
 
     event = ICalEvent()
     event.add("UID", target_uid)
     event.add("DTSTAMP", now)
 
-    canonical_fields: dict = {"summary": str(src.get("SUMMARY", "")), "location": occurrence.location}
     if "SUMMARY" not in stripped:
         event.add("SUMMARY", src.get("SUMMARY", vText("")))
 
     event.add("DTSTART", occurrence.start)
-    canonical_fields["dtstart"] = _dt_field(occurrence.start)
     dtend_prop = src.get("DTEND")
     if dtend_prop is not None:
         event.add("DTEND", occurrence.end)
@@ -106,7 +175,6 @@ def build_target_event(
         duration = src.get("DURATION")
         if duration is not None and "DURATION" not in stripped:
             event.add("DURATION", duration)
-    canonical_fields["dtend"] = _dt_field(occurrence.end)
 
     if "LOCATION" not in stripped:
         event.add("LOCATION", occurrence.location)
@@ -119,37 +187,27 @@ def build_target_event(
     for name, enabled in optional_toggle_fields.items():
         if enabled and name not in stripped and src.get(name) is not None:
             _copy_all(src, event, name)
-            value = src.get(name)
-            canonical_fields[name.lower()] = sorted(str(v) for v in value) if isinstance(value, list) else str(value)
 
     for name in ("CLASS", "TRANSP"):
         if name not in stripped and src.get(name) is not None:
             event.add(name, src.get(name))
-            canonical_fields[name.lower()] = str(src.get(name))
 
     if config.copy_organizer and "ORGANIZER" not in stripped and src.get("ORGANIZER") is not None:
         event.add("ORGANIZER", src.get("ORGANIZER"))
-        canonical_fields["organizer"] = str(src.get("ORGANIZER"))
 
     if config.copy_attendees and "ATTENDEE" not in stripped and src.get("ATTENDEE") is not None:
         _copy_all(src, event, "ATTENDEE")
-        value = src.get("ATTENDEE")
-        canonical_fields["attendees"] = sorted(str(v) for v in value) if isinstance(value, list) else [str(value)]
 
     if config.copy_alarms:
-        alarm_fingerprints = []
         for sub in src.subcomponents:
             if sub.name == "VALARM":
                 event.add_component(sub)
-                alarm_fingerprints.append(
-                    {"action": str(sub.get("ACTION", "")), "trigger": str(sub.get("TRIGGER", ""))}
-                )
-        if alarm_fingerprints:
-            canonical_fields["alarms"] = alarm_fingerprints
 
-    fingerprint = hashlib.sha256(
-        json.dumps(canonical_fields, sort_keys=True, ensure_ascii=True).encode("utf-8")
-    ).hexdigest()
+    # `src` already carries this occurrence's resolved DTSTART/DTEND/
+    # LOCATION (recurrence.py sets them to the concrete per-instance
+    # values), so it is exactly the input compute_fingerprint needs -
+    # no separate pass over `occurrence.start`/`.end`/`.location` required.
+    fingerprint = compute_fingerprint(src, config)
 
     event.add(MANAGED_PROP, "1")
     event.add(SOURCE_PROP, occurrence.source_id)

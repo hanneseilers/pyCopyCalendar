@@ -106,4 +106,5 @@ def extract_managed_metadata(href: str, etag: str | None, vevents: list[ICalEven
         source_uid=str(source_uid),
         recurrence_key_raw=str(recurrence_key_raw),
         fingerprint=str(fingerprint),
+        vevent=master,
     )

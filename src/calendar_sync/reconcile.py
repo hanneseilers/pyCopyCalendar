@@ -29,7 +29,7 @@ from .safety import (
 from .source_gateway import ReadOnlySourceGateway, SourceReadError, build_source_client
 from .state import StateRepository
 from .target_gateway import PreconditionFailed, TargetGateway, TargetWriteError, build_target_client
-from .transform import build_target_event
+from .transform import build_target_event, compute_fingerprint
 from .transport import TargetContainmentGuard
 
 log = logging.getLogger("calendar_sync.reconcile")
@@ -159,6 +159,7 @@ def _build_plan(
     window_start: datetime,
     window_end: datetime,
     failed_source_ids: set[str],
+    mirroring_config,
 ) -> ReconciliationPlan:
     """Phase C: deterministic plan, sorted by instance key within each
     group, creates before updates before deletes."""
@@ -184,7 +185,13 @@ def _build_plan(
                     fingerprint=desired_instance.fingerprint,
                 )
             )
-        elif managed_entry.fingerprint == desired_instance.fingerprint:
+        # Recompute the fingerprint from the target event's actual current
+        # content rather than trusting its self-reported
+        # X-CALMIRROR-FINGERPRINT property: a manual edit through the
+        # calendar UI is very unlikely to also touch that hidden property,
+        # so trusting it alone would silently ignore tampering (spec
+        # section 20: "altered managed target event is restored").
+        elif compute_fingerprint(managed_entry.vevent, mirroring_config) == desired_instance.fingerprint:
             plan.unchanged.append(
                 PlanAction(
                     change=ChangeType.UNCHANGED,
@@ -384,7 +391,9 @@ def run(
 
     # Phase C
     active_mappings = {row["instance_key"]: row for row in repo.all_active_mappings()}
-    plan = _build_plan(desired, active_mappings, target_gateway, window_start, window_end, failed_source_ids)
+    plan = _build_plan(
+        desired, active_mappings, target_gateway, window_start, window_end, failed_source_ids, config.mirroring
+    )
 
     try:
         check_deletion_limits(

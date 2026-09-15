@@ -160,7 +160,16 @@ class CalendarResource:
 
 @dataclass(frozen=True)
 class ManagedTargetEvent:
-    """A target-calendar event carrying valid X-CALMIRROR-* provenance."""
+    """A target-calendar event carrying valid X-CALMIRROR-* provenance.
+
+    `fingerprint` is the value the event *claims* for itself (its
+    X-CALMIRROR-FINGERPRINT property, as last written by this
+    application). `vevent` is the event's actual current master
+    component, kept so callers can independently recompute a fingerprint
+    from its real current field values via transform.compute_fingerprint
+    - detecting a manual edit that left the claimed fingerprint property
+    untouched, which `fingerprint` alone would miss.
+    """
 
     href: str
     etag: str | None
@@ -169,6 +178,7 @@ class ManagedTargetEvent:
     source_uid: str
     recurrence_key_raw: str
     fingerprint: str
+    vevent: object  # icalendar.cal.Event
 
     @property
     def instance_key_hint(self) -> str:

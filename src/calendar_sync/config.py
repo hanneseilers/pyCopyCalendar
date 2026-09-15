@@ -11,6 +11,7 @@ opens - see acceptance criteria in TECHNICAL_SPECIFICATION.md section 21.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -18,8 +19,17 @@ from .paths import PathEscapesProjectRootError, resolve_project_path
 from .textnorm import normalize_location
 from .urlsafety import CanonicalUrl, UrlSafetyError, canonicalize_url
 
+log = logging.getLogger("calendar_sync.config")
+
 SUPPORTED_MATCH_MODES = ("normalized_exact",)
 SUPPORTED_OUTSIDE_WINDOW_POLICIES = ("retain",)
+
+# UID/DTSTAMP/etc. are always excluded by transform.py's own allowlist
+# regardless of strip_fields, and DTSTART is required for the transform to
+# even produce a valid occurrence - listing any of these has no effect,
+# so warn rather than silently ignoring it (carried over from the
+# predecessor project's PROTECTED_FIELDS behavior).
+PROTECTED_STRIP_FIELDS = frozenset({"UID", "DTSTAMP", "DTSTART", "RECURRENCE-ID"})
 
 
 class ConfigError(ValueError):
@@ -249,6 +259,11 @@ def load_config(config_path: Path, *, project_root: Path) -> Config:
     )
 
     mirroring_raw = raw.get("mirroring") or {}
+    strip_fields = {str(f).upper() for f in (mirroring_raw.get("strip_fields") or [])}
+    ignored = strip_fields & PROTECTED_STRIP_FIELDS
+    if ignored:
+        log.warning("Ignoring mirroring.strip_fields entries that cannot be removed: %s", sorted(ignored))
+    strip_fields -= PROTECTED_STRIP_FIELDS
     mirroring = MirroringConfig(
         copy_description=bool(mirroring_raw.get("copy_description", True)),
         copy_url=bool(mirroring_raw.get("copy_url", True)),
@@ -256,7 +271,7 @@ def load_config(config_path: Path, *, project_root: Path) -> Config:
         copy_alarms=bool(mirroring_raw.get("copy_alarms", False)),
         copy_attendees=bool(mirroring_raw.get("copy_attendees", False)),
         copy_organizer=bool(mirroring_raw.get("copy_organizer", False)),
-        strip_fields=tuple(str(f).upper() for f in (mirroring_raw.get("strip_fields") or [])),
+        strip_fields=tuple(sorted(strip_fields)),
     )
 
     storage_raw = raw.get("storage") or {}
