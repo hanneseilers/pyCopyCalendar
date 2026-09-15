@@ -41,6 +41,14 @@ sync:
 
   match_case_sensitive: false
 
+  # Optional: iCalendar fields to drop from the copies in the target
+  # calendar, e.g. to keep private details out of a shared calendar.
+  # Common values: DESCRIPTION, ATTENDEE, ORGANIZER, URL, CATEGORIES.
+  # UID, RECURRENCE-ID and DTSTART can never be stripped, since the sync
+  # relies on them.
+  # strip_fields:
+  #   - DESCRIPTION
+
   # Optional: only look at events within a rolling time window instead of
   # the whole calendar (recommended for large/long-running calendars).
   # Remove/comment out both lines to sync every event regardless of date.

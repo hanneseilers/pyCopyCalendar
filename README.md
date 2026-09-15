@@ -52,4 +52,5 @@ See `config.example.yaml` for details, including:
 - `nextcloud.verify_ssl` / `password_env` (read the password from an
   environment variable instead)
 - `sync.match_case_sensitive`, `sync.time_window`
+- `sync.strip_fields` (drop fields like `DESCRIPTION` from the copies)
 - `logging.level` / `logging.file`

@@ -28,6 +28,10 @@ MANAGED_PROP = "X-PYCOPYCAL-MANAGED"
 SOURCE_UID_PROP = "X-PYCOPYCAL-SOURCE-UID"
 HASH_PROP = "X-PYCOPYCAL-HASH"
 
+# Fields that must never be stripped, since removing them would break
+# either the calendar format itself or the sync's ability to match events.
+PROTECTED_FIELDS = {"UID", "RECURRENCE-ID", "DTSTART"}
+
 log = logging.getLogger("pycopycalendar")
 
 
@@ -43,6 +47,7 @@ class Config:
     case_sensitive: bool
     past_days: Optional[int]
     future_days: Optional[int]
+    strip_fields: set
     dry_run: bool = False
 
 
@@ -63,6 +68,12 @@ def load_config(raw: dict) -> Config:
     if not locations:
         raise ValueError("sync.locations must contain at least one location string.")
 
+    strip_fields = {str(f).upper() for f in (sync_cfg.get("strip_fields") or [])}
+    ignored = strip_fields & PROTECTED_FIELDS
+    if ignored:
+        log.warning("Ignoring strip_fields entries that cannot be removed: %s", sorted(ignored))
+    strip_fields -= PROTECTED_FIELDS
+
     return Config(
         url=nc["url"],
         username=nc["username"],
@@ -74,6 +85,7 @@ def load_config(raw: dict) -> Config:
         case_sensitive=sync_cfg.get("match_case_sensitive", False),
         past_days=window.get("past_days"),
         future_days=window.get("future_days"),
+        strip_fields=strip_fields,
     )
 
 
@@ -166,15 +178,19 @@ def make_target_uid(source_uid: str) -> str:
     return UID_PREFIX + hashlib.sha256(source_uid.encode("utf-8")).hexdigest()
 
 
-def build_target_components(vevents: list, new_uid: str, source_uid: str):
+def build_target_components(vevents: list, new_uid: str, source_uid: str, strip_fields: set):
     """Clone all VEVENT components sharing source_uid (master + recurrence
-    overrides) under new_uid, and tag the master with sync metadata."""
+    overrides) under new_uid, and tag the master with sync metadata.
+
+    Any property whose name is in strip_fields (e.g. "DESCRIPTION") is
+    dropped from the copies, so no such details end up in the target
+    calendar."""
     cloned = []
     master = None
     for v in vevents:
         nv = ICalEvent()
         for key, value in v.items():
-            if key == "UID":
+            if key == "UID" or key in strip_fields:
                 continue
             nv.add(key, value)
         nv["UID"] = new_uid
@@ -247,7 +263,9 @@ def sync(config: Config) -> None:
             continue
         source_uid = str(master.get("UID"))
         new_uid = make_target_uid(source_uid)
-        cloned, combined_hash = build_target_components(vevents, new_uid, source_uid)
+        cloned, combined_hash = build_target_components(
+            vevents, new_uid, source_uid, config.strip_fields
+        )
         desired[new_uid] = (to_ics_bytes(cloned), combined_hash, str(master.get("SUMMARY", "")))
 
     log.info("%d source item(s) match the configured locations", len(desired))
