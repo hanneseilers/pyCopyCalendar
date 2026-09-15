@@ -24,6 +24,20 @@ SOURCE_UID_PROP = "X-CALMIRROR-SOURCE-UID"
 RECURRENCE_ID_PROP = "X-CALMIRROR-RECURRENCE-ID"
 FINGERPRINT_PROP = "X-CALMIRROR-FINGERPRINT"
 
+
+def normalize_etag(value: object) -> str | None:
+    """caldav's CalendarObjectResource.etag has returned either a plain
+    string or a raw lxml element (holding the getetag property text)
+    depending on library version/code path. Normalize defensively at the
+    one point every gateway reads an etag, rather than trusting either
+    shape blindly."""
+    if value is None:
+        return None
+    text = getattr(value, "text", None)
+    if text is not None:
+        return text
+    return str(value)
+
 SINGLE = "SINGLE"
 
 

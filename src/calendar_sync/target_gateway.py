@@ -21,7 +21,7 @@ import caldav
 from .config import NextcloudConfig, TargetConfig
 from .credentials import Credentials
 from .ical import extract_managed_metadata, parse_vevents
-from .models import ManagedTargetEvent, WriteResult
+from .models import CalendarResource, ManagedTargetEvent, WriteResult, normalize_etag
 from .transport import (
     BasicAuth,
     CalendarSyncSession,
@@ -92,7 +92,7 @@ class TargetGateway:
         managed: list[ManagedTargetEvent] = []
         for obj in objects:
             href = str(obj.url)
-            etag = getattr(obj, "etag", None)
+            etag = normalize_etag(getattr(obj, "etag", None))
             try:
                 vevents = parse_vevents(obj.data)
             except Exception as exc:
@@ -104,8 +104,31 @@ class TargetGateway:
         return managed
 
     def _object_href(self, target_uid: str) -> str:
+        # The object filename uses only the UUID part, not the full
+        # "<uuid>@calendar-mirror" target_uid string: servers are free to
+        # percent-encode "@" when echoing hrefs back (observed against the
+        # fake DAV transport used in tests), which would make a
+        # locally-built href stop matching a server-returned one. The UUID
+        # alone needs no such encoding, and the full target_uid still lives
+        # in the object's UID property regardless of its filename.
         base = self.calendar_url if self.calendar_url.endswith("/") else self.calendar_url + "/"
-        return urljoin(base, f"{target_uid}.ics")
+        uuid_part = target_uid.split("@", 1)[0]
+        return urljoin(base, f"{uuid_part}.ics")
+
+    def get_object(self, href: str) -> CalendarResource | None:
+        """Re-read one target object, e.g. to resolve a 409/412 conflict.
+        Returns None if it is gone (404) rather than raising, since "the
+        object we were about to write no longer exists" is an expected,
+        recoverable outcome here."""
+        response = self._request("GET", href, data=None, headers={})
+        if response.status_code == 404:
+            return None
+        if response.status_code != 200:
+            raise TargetWriteError(f"Unexpected status {response.status_code} reading {href}")
+        return CalendarResource(href=href, etag=response.headers.get("ETag"), ics_text=response.text)
+
+    def get_object_by_uid(self, target_uid: str) -> CalendarResource | None:
+        return self.get_object(self._object_href(target_uid))
 
     def create(self, target_uid: str, ics_bytes: bytes) -> WriteResult:
         href = self._object_href(target_uid)

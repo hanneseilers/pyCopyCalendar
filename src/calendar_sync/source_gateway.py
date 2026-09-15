@@ -19,7 +19,7 @@ import caldav
 
 from .config import NextcloudConfig, SourceConfig
 from .credentials import Credentials
-from .models import CalendarResource, SourceCapabilities
+from .models import CalendarResource, SourceCapabilities, normalize_etag
 from .transport import BasicAuth, CalendarSyncSession, StdlibTransport
 
 log = logging.getLogger("calendar_sync.source_gateway")
@@ -96,7 +96,7 @@ class ReadOnlySourceGateway:
                 )
             resources.append(
                 CalendarResource(
-                    href=str(obj.url), etag=getattr(obj, "etag", None), ics_text=ics_text
+                    href=str(obj.url), etag=normalize_etag(getattr(obj, "etag", None)), ics_text=ics_text
                 )
             )
         return resources
@@ -104,7 +104,7 @@ class ReadOnlySourceGateway:
     def get_resource(self, href: str) -> CalendarResource:
         try:
             obj = self._calendar.object_by_url(href)
-            return CalendarResource(href=href, etag=getattr(obj, "etag", None), ics_text=obj.data)
+            return CalendarResource(href=href, etag=normalize_etag(getattr(obj, "etag", None)), ics_text=obj.data)
         except Exception as exc:
             raise SourceReadError(
                 f"Failed to read '{href}' from source '{self.source_id}': {exc}"
