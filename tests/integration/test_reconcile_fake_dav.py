@@ -269,3 +269,122 @@ def test_credentials_never_appear_in_request_log(wire_fake_transport, credential
     reconcile.run(config, credentials, repo, dry_run=False, now=FIXED_NOW)
     for _, url in wire_fake_transport.requests:
         assert credentials.app_password not in url
+
+
+def _weekly_series_ics(uid="series-1", exception_summary=None, exception_location=None, exception_cancelled=False):
+    exception = ""
+    if exception_summary is not None or exception_location is not None or exception_cancelled:
+        status_line = "STATUS:CANCELLED\n" if exception_cancelled else ""
+        location_line = f"LOCATION:{exception_location}\n" if exception_location else ""
+        exception = f"""BEGIN:VEVENT
+UID:{uid}
+RECURRENCE-ID;TZID=Europe/Berlin:20260112T090000
+DTSTART;TZID=Europe/Berlin:20260112T090000
+DTEND;TZID=Europe/Berlin:20260112T100000
+SUMMARY:{exception_summary or "Weekly"}
+{location_line}{status_line}END:VEVENT
+"""
+    return f"""BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//test//
+BEGIN:VEVENT
+UID:{uid}
+DTSTART;TZID=Europe/Berlin:20260105T090000
+DTEND;TZID=Europe/Berlin:20260105T100000
+SUMMARY:Weekly
+LOCATION:Berlin Office
+RRULE:FREQ=WEEKLY;COUNT=2
+END:VEVENT
+{exception}END:VCALENDAR
+"""
+
+
+def test_recurrence_exception_location_transitions(wire_fake_transport, credentials, repo, tmp_path):
+    """Acceptance criterion 6: both location transitions work on
+    recurrence exceptions, exercised through the full reconcile pipeline
+    (not just recurrence.py's expansion in isolation)."""
+    src = source_a(wire_fake_transport)
+    tgt = target(wire_fake_transport)
+    src.objects["/remote.php/dav/calendars/user/source-a/series.ics"] = FakeObject(_weekly_series_ics(), '"e1"')
+    config = make_config(tmp_path)
+
+    summary = reconcile.run(config, credentials, repo, dry_run=False, now=FIXED_NOW)
+    assert summary.created == 2
+    assert len(tgt.objects) == 2
+
+    # eligible -> ineligible: the Jan-12 exception moves to a non-matching location
+    src.objects["/remote.php/dav/calendars/user/source-a/series.ics"] = FakeObject(
+        _weekly_series_ics(exception_location="Nowhere Relevant"), '"e2"'
+    )
+    summary = reconcile.run(config, credentials, repo, dry_run=False, now=FIXED_NOW, allow_large_delete=True)
+    assert summary.deleted == 1
+    assert len(tgt.objects) == 1  # the Jan-5 occurrence is untouched
+
+    # ineligible -> eligible: move it back
+    src.objects["/remote.php/dav/calendars/user/source-a/series.ics"] = FakeObject(_weekly_series_ics(), '"e3"')
+    summary = reconcile.run(config, credentials, repo, dry_run=False, now=FIXED_NOW)
+    assert summary.created == 1
+    assert len(tgt.objects) == 2
+
+
+def test_recurrence_exception_cancellation_removes_target_copy(wire_fake_transport, credentials, repo, tmp_path):
+    """Acceptance criterion 7 for the recurrence-exception case: a
+    cancelled exception's previously-mirrored copy is deleted."""
+    src = source_a(wire_fake_transport)
+    tgt = target(wire_fake_transport)
+    src.objects["/remote.php/dav/calendars/user/source-a/series.ics"] = FakeObject(_weekly_series_ics(), '"e1"')
+    config = make_config(tmp_path)
+    reconcile.run(config, credentials, repo, dry_run=False, now=FIXED_NOW)
+    assert len(tgt.objects) == 2
+
+    src.objects["/remote.php/dav/calendars/user/source-a/series.ics"] = FakeObject(
+        _weekly_series_ics(exception_cancelled=True), '"e2"'
+    )
+    summary = reconcile.run(config, credentials, repo, dry_run=False, now=FIXED_NOW, allow_large_delete=True)
+    assert summary.deleted == 1
+    assert len(tgt.objects) == 1
+
+
+def test_etag_conflict_recovers_on_retry_then_quarantines_on_repeat(wire_fake_transport, credentials, repo, tmp_path, monkeypatch):
+    """Acceptance criterion 11: an ETag conflict is detected (not
+    silently overwritten) - reconcile.py re-reads and retries the write
+    once, then quarantines rather than overwriting on a second conflict."""
+    src = source_a(wire_fake_transport)
+    tgt = target(wire_fake_transport)
+    src.objects["/remote.php/dav/calendars/user/source-a/ev1.ics"] = FakeObject(event_ics("ev-1"), '"e1"')
+    config = make_config(tmp_path)
+    reconcile.run(config, credentials, repo, dry_run=False, now=FIXED_NOW)
+    href, obj = next(iter(tgt.objects.items()))
+
+    from calendar_sync.target_gateway import PreconditionFailed, TargetGateway
+
+    original_replace = TargetGateway.replace
+    state = {"calls": 0}
+
+    def flaky_once_replace(self, href_, etag_, ics_bytes):
+        state["calls"] += 1
+        if state["calls"] == 1:
+            raise PreconditionFailed("simulated stale ETag", 412)
+        return original_replace(self, href_, etag_, ics_bytes)
+
+    monkeypatch.setattr(TargetGateway, "replace", flaky_once_replace)
+    src.objects["/remote.php/dav/calendars/user/source-a/ev1.ics"] = FakeObject(
+        event_ics("ev-1", summary="Renamed"), '"e2"'
+    )
+    summary = reconcile.run(config, credentials, repo, dry_run=False, now=FIXED_NOW)
+    assert summary.updated == 1
+    assert summary.quarantined == 0
+    assert "Renamed" in tgt.objects[href].ics_text
+
+    # Now make every replace() call fail -> must quarantine, never overwrite blindly.
+    def always_conflict_replace(self, href_, etag_, ics_bytes):
+        raise PreconditionFailed("simulated persistent conflict", 412)
+
+    monkeypatch.setattr(TargetGateway, "replace", always_conflict_replace)
+    src.objects["/remote.php/dav/calendars/user/source-a/ev1.ics"] = FakeObject(
+        event_ics("ev-1", summary="Renamed again"), '"e3"'
+    )
+    summary = reconcile.run(config, credentials, repo, dry_run=False, now=FIXED_NOW)
+    assert summary.quarantined == 1
+    assert summary.updated == 0
+    assert "Renamed again" not in tgt.objects[href].ics_text  # never blindly overwritten
