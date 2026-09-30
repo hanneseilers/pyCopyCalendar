@@ -61,23 +61,29 @@ executed, and is gitignored; never commit it.
 ### Alternative: web setup wizard (`setup.php`)
 
 If PHP is available on your webspace, `setup.php` in the project root is
-a one-time browser-based alternative to editing the two files above by
-hand: it shows a form, and only writes `config/config.yaml` and
-`secrets/nextcloud.env` after actually testing the connection to
-Nextcloud with what you entered (via this application's own
-`--validate-config` and `--preflight`) — nothing is kept if that test
-fails. It then deletes itself, and refuses outright (deleting itself
-again if still present) on any later request once `config/config.yaml`
-exists, so it can never be used to change the configuration afterwards.
+a one-time browser-based alternative to editing `config/config.yaml` by
+hand: it shows a form for the non-secret settings (Nextcloud base URL,
+source/target calendar URLs, locations, window) and only writes
+`config/config.yaml` after actually testing the connection to Nextcloud
+with what you entered (via this application's own `--validate-config`
+and `--preflight`) — nothing is kept if that test fails. It then deletes
+itself, and refuses outright (deleting itself again if still present) on
+any later request once `config/config.yaml` exists, so it can never be
+used to change the configuration afterwards.
+
+It deliberately does **not** ask for the Nextcloud app password:
+`secrets/nextcloud.env` must already exist (create it by hand first, as
+above) before the wizard shows its form at all.
 
 Before uploading, open `setup.php` and change `SETUP_TOKEN` to a long
 random value (e.g. `php -r "echo bin2hex(random_bytes(24));"`) — the
 wizard refuses to run at all with the placeholder value, and refuses any
 request that doesn't supply the matching `?token=`, since this is
-briefly a world-reachable page that a Nextcloud app password flows
-through. It also refuses non-HTTPS requests. See the file's own header
-comment for the full security model, and this README's Troubleshooting
-section for `strato_connection_test.sh`, the SSH-based equivalent.
+briefly a world-reachable page that can trigger config writes and
+outbound requests. It also refuses non-HTTPS requests. See the file's
+own header comment for the full security model, and this README's
+Troubleshooting section for `connection_test.sh`, the SSH-based
+equivalent.
 
 ### Configuration
 
@@ -246,7 +252,7 @@ machine, that alone doesn't tell you *why* — it could be the WAF/
 User-Agent issue above, or something specific to your network/IP
 (residential IPs are treated differently by some WAFs/CDNs than hosting
 IPs, and Nextcloud's own brute-force protection can temporarily throttle
-an IP after repeated failed attempts during testing). `strato_connection_test.sh`
+an IP after repeated failed attempts during testing). `connection_test.sh`
 in the project root runs the same checks (config validation, a raw
 `curl` PROPFIND, and this application's own `--preflight`) directly on
 the target webspace over SSH, so you can compare the result from there
@@ -256,7 +262,7 @@ against your own machine and tell the two apart:
 scp -r . youruser@your-strato-host:/path/to/calendar-sync
 ssh youruser@your-strato-host
 cd /path/to/calendar-sync
-./strato_connection_test.sh
+./connection_test.sh
 ```
 
 It never prints the app password and makes no changes to Nextcloud.

@@ -8,7 +8,7 @@
 # Usage (after uploading the whole project directory, e.g. via scp/sftp):
 #   ssh youruser@your-strato-host
 #   cd /path/to/calendar-sync
-#   ./strato_connection_test.sh [path/to/config.yaml]
+#   ./connection_test.sh [path/to/config.yaml]
 #
 # Never prints the app password. Safe to run repeatedly; makes no
 # changes to Nextcloud (every check here is read-only).
