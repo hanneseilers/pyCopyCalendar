@@ -11,36 +11,36 @@
  * `--validate-config` and `--preflight` both succeed against what you
  * entered (so a live Nextcloud connection is actually proven to work
  * before anything is kept - on failure both files are removed again and
- * the form is re-shown), and then deletes itself - so it can never be
- * used again to change the configuration afterwards. If it is ever
- * loaded again while config/config.yaml already exists (e.g. because
- * self-deletion failed, or you restored an old copy of this file), it
- * does nothing and deletes itself again instead of showing the form.
+ * the form is re-shown), and then deletes itself - so it can only ever
+ * run once, for a fresh install. If it is ever loaded while EITHER
+ * config/config.yaml OR secrets/nextcloud.env already exists (e.g.
+ * because self-deletion failed, or you restored an old copy of this
+ * file), it does nothing and deletes itself again instead of showing
+ * the form - it can never overwrite an existing configuration.
  *
- * There is no separate access password/token on this script itself -
- * reaching the URL is the only barrier. Anyone who can load the page
- * before you finish setup could submit their own values, though
- * finishing only succeeds against Nextcloud credentials that actually
- * work; this is a private, one-time-use page, not something to leave
- * lying around or link to. The one thing it does enforce is HTTPS,
- * since the app password would otherwise cross the wire in the clear.
+ * This script has NO authentication or access protection of its own -
+ * no login, no token, no HTTPS requirement. Reaching the URL is enough.
+ * That is a deliberate choice: keep the window this file exists on the
+ * webspace short (upload, run once, it deletes itself) rather than
+ * adding a gate to get through.
  *
  * USAGE:
  *   1. Upload the whole project (including this file) to your webspace.
- *      This file must sit where your web server can reach it over
- *      HTTP(S) - the project's root .htaccess denies everything else,
- *      with one explicit exception added for this file's name (see the
+ *      This file must sit where your web server can reach it over HTTP
+ *      - the project's root .htaccess denies everything else, with one
+ *      explicit exception added for this file's name (see the
  *      "setup.php" block near the top of .htaccess). If you rename this
  *      file, update that .htaccess block to match.
- *   2. Open https://your-domain/path/to/calendar-sync/setup.php
+ *   2. Open http(s)://your-domain/path/to/calendar-sync/setup.php
  *   3. Fill in the form. Nothing is written to disk until the
  *      connection test against Nextcloud actually succeeds.
  *
  * AFTER USE: this file deletes itself on success. If for any reason it
  * is still present afterwards (check via SFTP), delete it by hand - and
  * remove the matching exception block from .htaccess - since a
- * world-reachable PHP file that can write your Nextcloud app password
- * to disk is not something to leave lying around longer than necessary.
+ * world-reachable, unauthenticated PHP file that can write your
+ * Nextcloud app password to disk is not something to leave lying around
+ * longer than necessary.
  */
 
 declare(strict_types=1);
@@ -130,31 +130,19 @@ function runPythonCheck(string $projectRoot, string $configPath, array $args): a
 }
 
 // -----------------------------------------------------------------------
-// Guard: setup already completed. Do nothing, never show the form again,
-// and clean up this file if it's somehow still here.
+// Guard: setup already completed (or partially done by hand). Do
+// nothing, never show the form, and clean up this file if it's somehow
+// still here - this is the ONLY check this script performs. No login,
+// no token, no HTTPS requirement.
 // -----------------------------------------------------------------------
-if (is_file($configPath)) {
+if (is_file($configPath) || is_file($secretsPath)) {
     selfDestruct();
     http_response_code(403);
-    echo pageShell('Bereits konfiguriert', '<p>Es existiert bereits eine <code>config/config.yaml</code>. '
-        . 'Dieses Setup-Skript darf eine bestehende Konfiguration nicht überschreiben und hat sich soeben '
-        . '(erneut) selbst gelöscht, falls es noch vorhanden war.</p>'
-        . '<p>Konfiguration ändern? Bitte <code>config/config.yaml</code> direkt per SSH/SFTP bearbeiten.</p>');
-    exit;
-}
-
-// -----------------------------------------------------------------------
-// Require HTTPS: this form submits the Nextcloud app password in the
-// clear otherwise. This is the one check kept beyond "does the config
-// already exist" - not an access password on the script itself, just
-// transport security for the credential it collects.
-// -----------------------------------------------------------------------
-$isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-    || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
-if (!$isHttps) {
-    http_response_code(400);
-    echo pageShell('HTTPS erforderlich', '<p>Bitte über HTTPS aufrufen (nicht http://), '
-        . 'da hier ein Passwort übertragen wird.</p>');
+    echo pageShell('Bereits konfiguriert', '<p>Es existiert bereits eine <code>config/config.yaml</code> '
+        . 'und/oder <code>secrets/nextcloud.env</code>. Dieses Setup-Skript darf eine bestehende '
+        . 'Konfiguration nicht überschreiben und hat sich soeben (erneut) selbst gelöscht, falls es noch '
+        . 'vorhanden war.</p>'
+        . '<p>Konfiguration ändern? Bitte die Dateien direkt per SSH/SFTP bearbeiten.</p>');
     exit;
 }
 

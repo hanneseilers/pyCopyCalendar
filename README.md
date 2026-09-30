@@ -68,17 +68,19 @@ only writes both files after actually testing the connection to
 Nextcloud with what you entered (via this application's own
 `--validate-config` and `--preflight`) — nothing is kept if that test
 fails, both files are removed again and the form is re-shown. On
-success it deletes itself; on any later request once
-`config/config.yaml` already exists it does nothing and deletes itself
-again instead of showing the form, so it can never be used to change
-the configuration afterwards.
+success it deletes itself; if it's ever loaded while either
+`config/config.yaml` or `secrets/nextcloud.env` already exists, it does
+nothing and deletes itself again instead of showing the form. It can
+therefore only ever complete once, for a fresh install.
 
-It has no separate access password of its own — reaching the URL over
-HTTPS (enforced; the only other check besides "does the config already
-exist") is what it relies on. Treat the link as private while it's still
-there, the same as you would the app password itself. See the file's own
-header comment for the full model, and this README's Troubleshooting
-section for `connection_test.sh`, the SSH-based equivalent.
+It has **no authentication or access protection of its own** — no
+login, no token, no HTTPS requirement; reaching the URL is enough. That
+is intentional: upload it, run it once, it deletes itself, rather than
+adding a gate to get through. Treat the link as private for the short
+time it exists — delete `setup.php` by hand if you're not going to use
+it. See the file's own header comment for the full model, and this
+README's Troubleshooting section for `connection_test.sh`, the
+SSH-based equivalent.
 
 ### Configuration
 
