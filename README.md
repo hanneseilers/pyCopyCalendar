@@ -73,14 +73,13 @@ success it deletes itself; if it's ever loaded while either
 nothing and deletes itself again instead of showing the form. It can
 therefore only ever complete once, for a fresh install.
 
-It has **no authentication or access protection of its own** — no
-login, no token, no HTTPS requirement; reaching the URL is enough. That
-is intentional: upload it, run it once, it deletes itself, rather than
-adding a gate to get through. Treat the link as private for the short
-time it exists — delete `setup.php` by hand if you're not going to use
-it. See the file's own header comment for the full model, and this
-README's Troubleshooting section for `connection_test.sh`, the
-SSH-based equivalent.
+It has no login or access token of its own — reaching the URL is
+enough. The one requirement it does enforce is HTTPS, since the app
+password would otherwise cross the wire in the clear. Treat the link as
+private for the short time it exists — delete `setup.php` by hand if
+you're not going to use it. See the file's own header comment for the
+full model, and this README's Troubleshooting section for
+`connection_test.sh`, the SSH-based equivalent.
 
 ### Configuration
 

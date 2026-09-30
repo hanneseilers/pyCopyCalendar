@@ -18,20 +18,18 @@
  * file), it does nothing and deletes itself again instead of showing
  * the form - it can never overwrite an existing configuration.
  *
- * This script has NO authentication or access protection of its own -
- * no login, no token, no HTTPS requirement. Reaching the URL is enough.
- * That is a deliberate choice: keep the window this file exists on the
- * webspace short (upload, run once, it deletes itself) rather than
- * adding a gate to get through.
+ * This script has no login or access token of its own - reaching the
+ * URL is enough. The one requirement it does enforce is HTTPS, since
+ * the app password would otherwise cross the wire in the clear.
  *
  * USAGE:
  *   1. Upload the whole project (including this file) to your webspace.
- *      This file must sit where your web server can reach it over HTTP
- *      - the project's root .htaccess denies everything else, with one
- *      explicit exception added for this file's name (see the
+ *      This file must sit where your web server can reach it over
+ *      HTTP(S) - the project's root .htaccess denies everything else,
+ *      with one explicit exception added for this file's name (see the
  *      "setup.php" block near the top of .htaccess). If you rename this
  *      file, update that .htaccess block to match.
- *   2. Open http(s)://your-domain/path/to/calendar-sync/setup.php
+ *   2. Open https://your-domain/path/to/calendar-sync/setup.php
  *   3. Fill in the form. Nothing is written to disk until the
  *      connection test against Nextcloud actually succeeds.
  *
@@ -132,8 +130,7 @@ function runPythonCheck(string $projectRoot, string $configPath, array $args): a
 // -----------------------------------------------------------------------
 // Guard: setup already completed (or partially done by hand). Do
 // nothing, never show the form, and clean up this file if it's somehow
-// still here - this is the ONLY check this script performs. No login,
-// no token, no HTTPS requirement.
+// still here.
 // -----------------------------------------------------------------------
 if (is_file($configPath) || is_file($secretsPath)) {
     selfDestruct();
@@ -143,6 +140,19 @@ if (is_file($configPath) || is_file($secretsPath)) {
         . 'Konfiguration nicht überschreiben und hat sich soeben (erneut) selbst gelöscht, falls es noch '
         . 'vorhanden war.</p>'
         . '<p>Konfiguration ändern? Bitte die Dateien direkt per SSH/SFTP bearbeiten.</p>');
+    exit;
+}
+
+// -----------------------------------------------------------------------
+// Require HTTPS: this form submits the Nextcloud app password in the
+// clear otherwise.
+// -----------------------------------------------------------------------
+$isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+    || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+if (!$isHttps) {
+    http_response_code(400);
+    echo pageShell('HTTPS erforderlich', '<p>Bitte über HTTPS aufrufen (nicht http://), '
+        . 'da hier ein Passwort übertragen wird.</p>');
     exit;
 }
 
