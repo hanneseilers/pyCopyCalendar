@@ -58,6 +58,27 @@ Use an existing Nextcloud user and an **app password** (Nextcloud web UI
 password. This file is parsed as plain `KEY=VALUE` data, never sourced or
 executed, and is gitignored; never commit it.
 
+### Alternative: web setup wizard (`setup.php`)
+
+If PHP is available on your webspace, `setup.php` in the project root is
+a one-time browser-based alternative to editing the two files above by
+hand: it shows a form, and only writes `config/config.yaml` and
+`secrets/nextcloud.env` after actually testing the connection to
+Nextcloud with what you entered (via this application's own
+`--validate-config` and `--preflight`) — nothing is kept if that test
+fails. It then deletes itself, and refuses outright (deleting itself
+again if still present) on any later request once `config/config.yaml`
+exists, so it can never be used to change the configuration afterwards.
+
+Before uploading, open `setup.php` and change `SETUP_TOKEN` to a long
+random value (e.g. `php -r "echo bin2hex(random_bytes(24));"`) — the
+wizard refuses to run at all with the placeholder value, and refuses any
+request that doesn't supply the matching `?token=`, since this is
+briefly a world-reachable page that a Nextcloud app password flows
+through. It also refuses non-HTTPS requests. See the file's own header
+comment for the full security model, and this README's Troubleshooting
+section for `strato_connection_test.sh`, the SSH-based equivalent.
+
 ### Configuration
 
 Edit `config/config.yaml` (see the comments and defaults in
@@ -267,6 +288,11 @@ denies all HTTP access, and `config/`, `secrets/`, `data/`, `logs/` and
 Deploying the project **outside** the public document root is still
 strongly preferred; verify the deny behavior against representative
 files on your actual host before relying on it in production.
+
+`setup.php` (see above) is the one deliberate exception, carved out by
+name in the root `.htaccess`. If you don't plan to use it, or once
+you're done with it, just delete `setup.php` — the exception then grants
+access to nothing.
 
 ## Running the test suite
 
