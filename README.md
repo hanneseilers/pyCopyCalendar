@@ -61,29 +61,24 @@ executed, and is gitignored; never commit it.
 ### Alternative: web setup wizard (`setup.php`)
 
 If PHP is available on your webspace, `setup.php` in the project root is
-a one-time browser-based alternative to editing `config/config.yaml` by
-hand: it shows a form for the non-secret settings (Nextcloud base URL,
-source/target calendar URLs, locations, window) and only writes
-`config/config.yaml` after actually testing the connection to Nextcloud
-with what you entered (via this application's own `--validate-config`
-and `--preflight`) — nothing is kept if that test fails. It then deletes
-itself, and refuses outright (deleting itself again if still present) on
-any later request once `config/config.yaml` exists, so it can never be
-used to change the configuration afterwards.
+a one-time browser-based alternative to editing `config/config.yaml` and
+`secrets/nextcloud.env` by hand: it shows a form for the full
+configuration, including the Nextcloud username and app password, and
+only writes both files after actually testing the connection to
+Nextcloud with what you entered (via this application's own
+`--validate-config` and `--preflight`) — nothing is kept if that test
+fails, both files are removed again and the form is re-shown. On
+success it deletes itself; on any later request once
+`config/config.yaml` already exists it does nothing and deletes itself
+again instead of showing the form, so it can never be used to change
+the configuration afterwards.
 
-It deliberately does **not** ask for the Nextcloud app password:
-`secrets/nextcloud.env` must already exist (create it by hand first, as
-above) before the wizard shows its form at all.
-
-Before uploading, open `setup.php` and change `SETUP_TOKEN` to a long
-random value (e.g. `php -r "echo bin2hex(random_bytes(24));"`) — the
-wizard refuses to run at all with the placeholder value, and refuses any
-request that doesn't supply the matching `?token=`, since this is
-briefly a world-reachable page that can trigger config writes and
-outbound requests. It also refuses non-HTTPS requests. See the file's
-own header comment for the full security model, and this README's
-Troubleshooting section for `connection_test.sh`, the SSH-based
-equivalent.
+It has no separate access password of its own — reaching the URL over
+HTTPS (enforced; the only other check besides "does the config already
+exist") is what it relies on. Treat the link as private while it's still
+there, the same as you would the app password itself. See the file's own
+header comment for the full model, and this README's Troubleshooting
+section for `connection_test.sh`, the SSH-based equivalent.
 
 ### Configuration
 

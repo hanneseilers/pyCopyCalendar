@@ -3,51 +3,47 @@
  * One-time web setup wizard for calendar-sync.
  *
  * WHAT THIS IS: a single self-contained PHP file that lets you enter the
- * non-secret parts of the configuration (Nextcloud base URL, source/
- * target calendar URLs, locations, window) through a browser form
- * instead of editing config/config.yaml by hand over SSH/SFTP. The
- * Nextcloud app password is deliberately NOT handled here - it never
- * flows through this web form or this PHP process. Create
- * secrets/nextcloud.env yourself first (copy secrets/nextcloud.env.example
- * and fill it in via SSH/SFTP); this wizard refuses to show the form
- * until that file exists.
+ * full configuration - including the Nextcloud username and app
+ * password - through a browser form instead of editing
+ * config/config.yaml and secrets/nextcloud.env by hand over SSH/SFTP.
  *
- * It writes config/config.yaml only after this application's own
+ * It writes both files only after this application's own
  * `--validate-config` and `--preflight` both succeed against what you
- * entered plus your existing secrets/nextcloud.env (so a live Nextcloud
- * connection is actually proven to work before anything is kept), and
- * then deletes itself - so it can never be used again to change the
- * configuration afterwards. If it is ever loaded again while
- * config/config.yaml already exists (e.g. because self-deletion failed,
- * or you restored an old copy of this file), it refuses outright and
- * deletes itself again instead of showing the form.
+ * entered (so a live Nextcloud connection is actually proven to work
+ * before anything is kept - on failure both files are removed again and
+ * the form is re-shown), and then deletes itself - so it can never be
+ * used again to change the configuration afterwards. If it is ever
+ * loaded again while config/config.yaml already exists (e.g. because
+ * self-deletion failed, or you restored an old copy of this file), it
+ * does nothing and deletes itself again instead of showing the form.
  *
- * BEFORE UPLOADING:
- *   1. Change SETUP_TOKEN below to a long random value, e.g. generate
- *      one with:  php -r "echo bin2hex(random_bytes(24)), PHP_EOL;"
- *   2. Upload the whole project (including this file) to your webspace.
+ * There is no separate access password/token on this script itself -
+ * reaching the URL is the only barrier. Anyone who can load the page
+ * before you finish setup could submit their own values, though
+ * finishing only succeeds against Nextcloud credentials that actually
+ * work; this is a private, one-time-use page, not something to leave
+ * lying around or link to. The one thing it does enforce is HTTPS,
+ * since the app password would otherwise cross the wire in the clear.
+ *
+ * USAGE:
+ *   1. Upload the whole project (including this file) to your webspace.
  *      This file must sit where your web server can reach it over
  *      HTTP(S) - the project's root .htaccess denies everything else,
  *      with one explicit exception added for this file's name (see the
  *      "setup.php" block near the top of .htaccess). If you rename this
  *      file, update that .htaccess block to match.
- *   3. Create secrets/nextcloud.env via SSH/SFTP (see above).
- *   4. Open https://your-domain/path/to/calendar-sync/setup.php?token=<your token>
- *   5. Fill in the form. Nothing is written to disk until the
+ *   2. Open https://your-domain/path/to/calendar-sync/setup.php
+ *   3. Fill in the form. Nothing is written to disk until the
  *      connection test against Nextcloud actually succeeds.
  *
  * AFTER USE: this file deletes itself on success. If for any reason it
  * is still present afterwards (check via SFTP), delete it by hand - and
  * remove the matching exception block from .htaccess - since a
- * world-reachable PHP file that can trigger config writes and outbound
- * requests is not something to leave lying around longer than necessary.
+ * world-reachable PHP file that can write your Nextcloud app password
+ * to disk is not something to leave lying around longer than necessary.
  */
 
 declare(strict_types=1);
-
-// ============================================================================
-const SETUP_TOKEN = 'change-me-to-a-long-random-value';
-// ============================================================================
 
 error_reporting(E_ALL);
 ini_set('display_errors', '0'); // never leak raw PHP errors/paths to the browser
@@ -134,8 +130,8 @@ function runPythonCheck(string $projectRoot, string $configPath, array $args): a
 }
 
 // -----------------------------------------------------------------------
-// Guard 1: setup already completed. Never show the form again, and clean
-// up this file if it's somehow still here.
+// Guard: setup already completed. Do nothing, never show the form again,
+// and clean up this file if it's somehow still here.
 // -----------------------------------------------------------------------
 if (is_file($configPath)) {
     selfDestruct();
@@ -148,43 +144,17 @@ if (is_file($configPath)) {
 }
 
 // -----------------------------------------------------------------------
-// Guard 2: access token. Change SETUP_TOKEN above before uploading.
-// -----------------------------------------------------------------------
-$providedToken = (string) ($_GET['token'] ?? $_POST['token'] ?? '');
-$tokenIsDefault = hash_equals('change-me-to-a-long-random-value', SETUP_TOKEN);
-if ($tokenIsDefault || $providedToken === '' || !hash_equals(SETUP_TOKEN, $providedToken)) {
-    http_response_code(403);
-    if ($tokenIsDefault) {
-        echo pageShell('Nicht konfiguriert', '<p>SETUP_TOKEN wurde in setup.php noch nicht geändert. '
-            . 'Bitte lokal editieren, neu hochladen, dann erneut aufrufen.</p>');
-    } else {
-        echo pageShell('Zugriff verweigert', '<p>Zugriff verweigert.</p>');
-    }
-    exit;
-}
-
-// -----------------------------------------------------------------------
-// Guard 3: require HTTPS - this form still submits internal calendar
-// URLs and can trigger outbound requests, even without a password.
+// Require HTTPS: this form submits the Nextcloud app password in the
+// clear otherwise. This is the one check kept beyond "does the config
+// already exist" - not an access password on the script itself, just
+// transport security for the credential it collects.
 // -----------------------------------------------------------------------
 $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
     || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
 if (!$isHttps) {
     http_response_code(400);
-    echo pageShell('HTTPS erforderlich', '<p>Bitte über HTTPS aufrufen (nicht http://).</p>');
-    exit;
-}
-
-// -----------------------------------------------------------------------
-// Guard 4: secrets/nextcloud.env must already exist. This wizard never
-// asks for, writes, or otherwise handles the Nextcloud app password.
-// -----------------------------------------------------------------------
-if (!is_file($secretsPath)) {
-    echo pageShell('secrets/nextcloud.env fehlt', '<p>Bitte zuerst per SSH/SFTP anlegen: '
-        . '<code>secrets/nextcloud.env.example</code> nach <code>secrets/nextcloud.env</code> kopieren und '
-        . 'Benutzername sowie App-Passwort eintragen (siehe README, Abschnitt "Credentials"). '
-        . 'Dieses Setup-Formular fragt das App-Passwort bewusst nicht ab.</p>'
-        . '<p>Danach diese Seite neu laden.</p>');
+    echo pageShell('HTTPS erforderlich', '<p>Bitte über HTTPS aufrufen (nicht http://), '
+        . 'da hier ein Passwort übertragen wird.</p>');
     exit;
 }
 
@@ -194,6 +164,8 @@ $success = false;
 
 $values = [
     'base_url'          => '',
+    'username'          => '',
+    'app_password'      => '',
     'target_url'        => '',
     'timezone'          => 'Europe/Berlin',
     'lookback_days'     => '7',
@@ -205,6 +177,8 @@ $values = [
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $values['base_url']        = trim((string) ($_POST['base_url'] ?? ''));
+    $values['username']        = trim((string) ($_POST['username'] ?? ''));
+    $values['app_password']    = (string) ($_POST['app_password'] ?? '');
     $values['target_url']      = trim((string) ($_POST['target_url'] ?? ''));
     $values['timezone']        = trim((string) ($_POST['timezone'] ?? '')) ?: 'Europe/Berlin';
     $values['lookback_days']   = trim((string) ($_POST['lookback_days'] ?? '7'));
@@ -248,6 +222,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // rules never have to be kept in sync by hand in two places. ---
     if ($values['base_url'] === '' || !preg_match('#^https://#i', $values['base_url'])) {
         $errors[] = 'Nextcloud Base-URL muss mit https:// beginnen.';
+    }
+    if ($values['username'] === '') {
+        $errors[] = 'Nextcloud-Benutzername fehlt.';
+    }
+    if ($values['app_password'] === '') {
+        $errors[] = 'App-Passwort fehlt (nicht das normale Login-Passwort - siehe Nextcloud Einstellungen > Sicherheit).';
     }
     if ($values['target_url'] === '' || !preg_match('#^https://#i', $values['target_url'])) {
         $errors[] = 'Ziel-Kalender-URL fehlt oder beginnt nicht mit https://.';
@@ -334,12 +314,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $yaml .= "  max_bytes: 1000000\n";
         $yaml .= "  backup_count: 5\n";
 
-        $writeOk = @file_put_contents($configPath, $yaml) !== false;
+        $envContent = 'NEXTCLOUD_USERNAME=' . str_replace(["\r", "\n"], '', $values['username']) . "\n"
+            . 'NEXTCLOUD_APP_PASSWORD=' . str_replace(["\r", "\n"], '', $values['app_password']) . "\n";
+
+        $writeOk = @file_put_contents($configPath, $yaml) !== false
+            && @file_put_contents($secretsPath, $envContent) !== false;
         if ($writeOk) {
             @chmod($configPath, 0600);
+            @chmod($secretsPath, 0600);
         } else {
-            $errors[] = 'Konnte config/config.yaml nicht schreiben (Dateirechte prüfen).';
+            $errors[] = 'Konnte config/config.yaml oder secrets/nextcloud.env nicht schreiben (Dateirechte prüfen).';
             @unlink($configPath);
+            @unlink($secretsPath);
         }
     }
 
@@ -353,6 +339,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$ok) {
             $errors[] = 'Verbindungstest fehlgeschlagen - die Konfiguration wurde NICHT übernommen (Ausgabe unten). Bitte Angaben korrigieren und erneut absenden.';
             @unlink($configPath);
+            @unlink($secretsPath);
         } else {
             $success = true;
         }
@@ -367,7 +354,8 @@ if ($success) {
           . 'Bitte <code>setup.php</code> jetzt manuell per SFTP löschen und die zugehörige Ausnahme in '
           . '<code>.htaccess</code> entfernen.</p>';
     echo pageShell('Setup abgeschlossen', '<div class="ok"><h1>✓ Konfiguration gespeichert</h1>'
-        . '<p>Verbindungstest erfolgreich - <code>config/config.yaml</code> wurde geschrieben.</p></div>'
+        . '<p>Verbindungstest erfolgreich - <code>config/config.yaml</code> und '
+        . '<code>secrets/nextcloud.env</code> wurden geschrieben.</p></div>'
         . $note
         . '<p>Nächster Schritt: einen Cronjob einrichten, der periodisch aufruft:</p>'
         . '<pre>' . h($projectRoot) . "/.venv/bin/python -m calendar_sync --config config/config.yaml --apply</pre>"
@@ -411,29 +399,31 @@ foreach ($values['locations'] as $i => $l) {
 
 $checked = $values['dry_run_default'] === '1' ? ' checked' : '';
 
-$baseUrlEsc       = h($values['base_url']);
-$targetUrlEsc     = h($values['target_url']);
-$timezoneEsc      = h($values['timezone']);
-$lookbackEsc      = h($values['lookback_days']);
-$lookaheadEsc     = h($values['lookahead_days']);
-$providedTokenEsc = h($providedToken);
+$baseUrlEsc   = h($values['base_url']);
+$usernameEsc  = h($values['username']);
+$targetUrlEsc = h($values['target_url']);
+$timezoneEsc  = h($values['timezone']);
+$lookbackEsc  = h($values['lookback_days']);
+$lookaheadEsc = h($values['lookahead_days']);
 
 $form = <<<HTML
 <h1>calendar-sync einrichten</h1>
-<p>Trägt die Kalender-Konfiguration ein (das Nextcloud App-Passwort wird
-hier bewusst nicht abgefragt - das steht bereits in
-<code>secrets/nextcloud.env</code>). Geschrieben wird erst, nachdem eine
-echte Verbindung zu Nextcloud damit getestet und bestätigt wurde. Dieses
-Skript löscht sich danach selbst.</p>
+<p>Trägt die Nextcloud-Zugangsdaten und die Kalender-Konfiguration ein.
+Geschrieben wird erst, nachdem eine echte Verbindung zu Nextcloud damit
+getestet und bestätigt wurde. Dieses Skript löscht sich danach selbst.</p>
 {$errorsHtml}
 <form method="post">
-<input type="hidden" name="token" value="{$providedTokenEsc}">
 
 <fieldset>
-<legend>Nextcloud</legend>
+<legend>Nextcloud-Zugang</legend>
 <label>Base-URL</label>
 <input type="url" name="base_url" value="{$baseUrlEsc}" placeholder="https://cloud.example.invalid/remote.php/dav/" required>
-<div class="hint">CalDAV-Wurzel deiner Nextcloud, üblicherweise https://DOMAIN/remote.php/dav/. Benutzername und App-Passwort kommen aus secrets/nextcloud.env.</div>
+<div class="hint">CalDAV-Wurzel deiner Nextcloud, üblicherweise https://DOMAIN/remote.php/dav/</div>
+<label>Benutzername</label>
+<input type="text" name="username" value="{$usernameEsc}" required>
+<label>App-Passwort</label>
+<input type="password" name="app_password" value="" required>
+<div class="hint">Nicht das normale Login-Passwort - Nextcloud Weboberfläche → Einstellungen → Sicherheit → "Neues App-Passwort erstellen".</div>
 </fieldset>
 
 <fieldset>
