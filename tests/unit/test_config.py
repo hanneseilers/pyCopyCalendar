@@ -138,3 +138,26 @@ def test_defaults_are_applied(tmp_path):
     assert config.safety.dry_run_default is True
     assert config.mirroring.copy_organizer is False
     assert config.storage.database == "data/sync.sqlite3"
+
+
+def test_buffer_defaults_to_zero(tmp_path):
+    path, root = write_config(tmp_path, base_config())
+    config = load_config(path, project_root=root)
+    assert config.buffer.before_minutes == 0
+    assert config.buffer.after_minutes == 0
+
+
+def test_buffer_values_are_applied(tmp_path):
+    cfg = base_config(buffer={"before_minutes": 15, "after_minutes": 30})
+    path, root = write_config(tmp_path, cfg)
+    config = load_config(path, project_root=root)
+    assert config.buffer.before_minutes == 15
+    assert config.buffer.after_minutes == 30
+
+
+@pytest.mark.parametrize("field", ["before_minutes", "after_minutes"])
+def test_buffer_rejects_negative_minutes(tmp_path, field):
+    cfg = base_config(buffer={field: -1})
+    path, root = write_config(tmp_path, cfg)
+    with pytest.raises(ConfigError, match="buffer"):
+        load_config(path, project_root=root)

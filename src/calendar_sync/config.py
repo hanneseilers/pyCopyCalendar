@@ -85,6 +85,17 @@ class WindowConfig:
 
 
 @dataclass(frozen=True)
+class BufferConfig:
+    """Padding added around each mirrored *timed* occurrence's start and
+    end in the target calendar (e.g. travel/prep time before a meeting,
+    wrap-up time after it). Never applied to all-day events, since
+    "15 minutes before midnight" has no meaningful equivalent there."""
+
+    before_minutes: int = 0
+    after_minutes: int = 0
+
+
+@dataclass(frozen=True)
 class MirroringConfig:
     copy_description: bool
     copy_url: bool
@@ -128,6 +139,7 @@ class Config:
     target: TargetConfig
     location_filter: LocationFilterConfig
     window: WindowConfig
+    buffer: BufferConfig
     mirroring: MirroringConfig
     storage: StorageConfig
     safety: SafetyConfig
@@ -258,6 +270,13 @@ def load_config(config_path: Path, *, project_root: Path) -> Config:
         outside_window_policy=outside_policy,
     )
 
+    buffer_raw = raw.get("buffer") or {}
+    buffer_before = int(buffer_raw.get("before_minutes", 0))
+    buffer_after = int(buffer_raw.get("after_minutes", 0))
+    if buffer_before < 0 or buffer_after < 0:
+        raise ConfigError("buffer.before_minutes and buffer.after_minutes must be >= 0.")
+    buffer = BufferConfig(before_minutes=buffer_before, after_minutes=buffer_after)
+
     mirroring_raw = raw.get("mirroring") or {}
     strip_fields = {str(f).upper() for f in (mirroring_raw.get("strip_fields") or [])}
     ignored = strip_fields & PROTECTED_STRIP_FIELDS
@@ -359,6 +378,7 @@ def load_config(config_path: Path, *, project_root: Path) -> Config:
         target=target,
         location_filter=location_filter,
         window=window,
+        buffer=buffer,
         mirroring=mirroring,
         storage=storage,
         safety=safety,

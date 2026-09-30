@@ -3,6 +3,7 @@ import pytest
 
 from calendar_sync import reconcile, source_gateway, target_gateway
 from calendar_sync.config import (
+    BufferConfig,
     CanonicalLocation,
     Config,
     LocationFilterConfig,
@@ -62,7 +63,7 @@ def credentials():
 
 def make_config(tmp_path, *, source_ids=("dept-a",), require_all_sources=True,
                  max_delete_ratio=1.0, max_deletes_absolute=1000, max_runtime_seconds=60,
-                 locations=None):
+                 locations=None, buffer_before_minutes=0, buffer_after_minutes=0):
     urls = {"dept-a": SOURCE_A_URL, "dept-b": SOURCE_B_URL}
     sources = tuple(SourceConfig(id=sid, calendar_url=urls[sid], enabled=True) for sid in source_ids)
     locations = locations or (CanonicalLocation(canonical="Berlin Office", aliases=("Berlin Office",)),)
@@ -75,6 +76,7 @@ def make_config(tmp_path, *, source_ids=("dept-a",), require_all_sources=True,
     target = TargetConfig(calendar_url=TARGET_URL)
     lf = LocationFilterConfig(match_mode="normalized_exact", case_sensitive=False, locations=locations)
     window = WindowConfig(timezone="Europe/Berlin", lookback_days=7, lookahead_days=180, outside_window_policy="retain")
+    buffer = BufferConfig(before_minutes=buffer_before_minutes, after_minutes=buffer_after_minutes)
     mirroring = MirroringConfig(
         copy_description=True, copy_url=True, copy_categories=True,
         copy_alarms=False, copy_attendees=False, copy_organizer=False,
@@ -91,7 +93,7 @@ def make_config(tmp_path, *, source_ids=("dept-a",), require_all_sources=True,
 
     return Config(
         nextcloud=nc, sources=sources, target=target, location_filter=lf, window=window,
-        mirroring=mirroring, storage=storage, safety=safety, logging=logging_cfg,
+        buffer=buffer, mirroring=mirroring, storage=storage, safety=safety, logging=logging_cfg,
         project_root=tmp_path,
         canonical_base=canonicalize_url(BASE), canonical_target=canonicalize_url(TARGET_URL),
         canonical_sources=tuple(canonicalize_url(urls[sid]) for sid in source_ids),

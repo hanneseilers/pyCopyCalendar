@@ -388,3 +388,30 @@ def test_etag_conflict_recovers_on_retry_then_quarantines_on_repeat(wire_fake_tr
     assert summary.quarantined == 1
     assert summary.updated == 0
     assert "Renamed again" not in tgt.objects[href].ics_text  # never blindly overwritten
+
+
+def test_buffer_pads_target_event_and_stays_idempotent(wire_fake_transport, credentials, repo, tmp_path):
+    """The configured buffer must show up in the actual written target
+    event, and a second run against the same unchanged source must still
+    perform zero writes - regression guard for the fingerprint needing to
+    be computed from the (buffered) written content, not the unbuffered
+    source occurrence."""
+    src = source_a(wire_fake_transport)
+    tgt = target(wire_fake_transport)
+    src.objects["/remote.php/dav/calendars/user/source-a/ev1.ics"] = FakeObject(
+        event_ics("ev-1", start="20260110T090000Z", end="20260110T100000Z"), '"e1"'
+    )
+    config = make_config(tmp_path, buffer_before_minutes=15, buffer_after_minutes=30)
+
+    summary = reconcile.run(config, credentials, repo, dry_run=False, now=FIXED_NOW)
+    assert summary.created == 1
+    (_, obj) = next(iter(tgt.objects.items()))
+    assert "DTSTART:20260110T084500Z" in obj.ics_text
+    assert "DTEND:20260110T103000Z" in obj.ics_text
+
+    wire_fake_transport.requests.clear()
+    summary = reconcile.run(config, credentials, repo, dry_run=False, now=FIXED_NOW)
+    assert summary.created == 0 and summary.updated == 0 and summary.deleted == 0
+    assert summary.unchanged == 1
+    mutating = [(m, u) for m, u in wire_fake_transport.requests if m in ("PUT", "POST", "PATCH", "DELETE")]
+    assert mutating == []

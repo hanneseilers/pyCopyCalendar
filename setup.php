@@ -168,6 +168,8 @@ $values = [
     'timezone'          => 'Europe/Berlin',
     'lookback_days'     => '7',
     'lookahead_days'    => '180',
+    'buffer_before'     => '0',
+    'buffer_after'      => '0',
     'dry_run_default'   => '1',
     'sources'           => [['id' => '', 'url' => ''], ['id' => '', 'url' => ''], ['id' => '', 'url' => '']],
     'locations'         => [['canonical' => '', 'aliases' => ''], ['canonical' => '', 'aliases' => ''], ['canonical' => '', 'aliases' => '']],
@@ -181,6 +183,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $values['timezone']        = trim((string) ($_POST['timezone'] ?? '')) ?: 'Europe/Berlin';
     $values['lookback_days']   = trim((string) ($_POST['lookback_days'] ?? '7'));
     $values['lookahead_days']  = trim((string) ($_POST['lookahead_days'] ?? '180'));
+    $values['buffer_before']   = trim((string) ($_POST['buffer_before'] ?? '0'));
+    $values['buffer_after']    = trim((string) ($_POST['buffer_after'] ?? '0'));
     $values['dry_run_default'] = isset($_POST['dry_run_default']) ? '1' : '0';
 
     $postedSourceIds  = $_POST['source_id'] ?? [];
@@ -243,6 +247,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!ctype_digit($values['lookback_days']) || !ctype_digit($values['lookahead_days'])) {
         $errors[] = 'Zeitfenster (Rück-/Vorlaufzeit) müssen positive ganze Zahlen (Tage) sein.';
     }
+    if (!ctype_digit($values['buffer_before']) || !ctype_digit($values['buffer_after'])) {
+        $errors[] = 'Puffer vor/nach Terminen müssen positive ganze Zahlen (Minuten) sein.';
+    }
     if (!is_dir($configDir) || !is_dir($secretsDir)) {
         $errors[] = 'config/ oder secrets/ Verzeichnis fehlt - wurde das ganze Projekt korrekt hochgeladen?';
     }
@@ -282,6 +289,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $yaml .= '  lookback_days: ' . (int) $values['lookback_days'] . "\n";
         $yaml .= '  lookahead_days: ' . (int) $values['lookahead_days'] . "\n";
         $yaml .= "  outside_window_policy: \"retain\"\n\n";
+
+        $yaml .= "buffer:\n";
+        $yaml .= '  before_minutes: ' . (int) $values['buffer_before'] . "\n";
+        $yaml .= '  after_minutes: ' . (int) $values['buffer_after'] . "\n\n";
 
         $yaml .= "mirroring:\n";
         $yaml .= "  copy_description: true\n";
@@ -403,6 +414,8 @@ $targetUrlEsc = h($values['target_url']);
 $timezoneEsc  = h($values['timezone']);
 $lookbackEsc  = h($values['lookback_days']);
 $lookaheadEsc = h($values['lookahead_days']);
+$bufBeforeEsc = h($values['buffer_before']);
+$bufAfterEsc  = h($values['buffer_after']);
 
 $form = <<<HTML
 <h1>calendar-sync einrichten</h1>
@@ -448,6 +461,15 @@ getestet und bestätigt wurde. Dieses Skript löscht sich danach selbst.</p>
 <div><label>Vorlauf (Tage)</label><input type="text" name="lookahead_days" value="{$lookaheadEsc}"></div>
 </div>
 <label><input type="checkbox" name="dry_run_default" value="1"{$checked}> Dry-run als Standard (empfohlen - erst mit <code>--apply</code> werden wirklich Änderungen geschrieben)</label>
+</fieldset>
+
+<fieldset>
+<legend>Puffer um Termine im Zielkalender</legend>
+<div class="row">
+<div><label>Puffer davor (Minuten)</label><input type="text" name="buffer_before" value="{$bufBeforeEsc}"></div>
+<div><label>Puffer danach (Minuten)</label><input type="text" name="buffer_after" value="{$bufAfterEsc}"></div>
+</div>
+<div class="hint">Jeder gespiegelte Termin im Zielkalender beginnt entsprechend früher und endet entsprechend später als im Quellkalender (z.B. Anfahrt/Nachbereitung). Gilt nicht für ganztägige Termine. 0 = kein Puffer.</div>
 </fieldset>
 
 <button type="submit">Speichern &amp; Verbindung testen</button>

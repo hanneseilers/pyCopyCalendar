@@ -1,10 +1,10 @@
 from datetime import datetime, timezone
 
-from calendar_sync.config import MirroringConfig
+from calendar_sync.config import BufferConfig, MirroringConfig
 from calendar_sync.ical import parse_vevents
 from calendar_sync.models import target_uid
 from calendar_sync.recurrence import expand_source_object
-from calendar_sync.transform import build_target_event
+from calendar_sync.transform import build_target_event, compute_fingerprint
 
 WINDOW_START = datetime(2026, 1, 1, tzinfo=timezone.utc)
 WINDOW_END = datetime(2026, 2, 1, tzinfo=timezone.utc)
@@ -43,9 +43,9 @@ END:VCALENDAR
 """
 
 
-def build(occurrence, canonical="Berlin Office", mirroring=DEFAULT_MIRRORING, now=None):
+def build(occurrence, canonical="Berlin Office", mirroring=DEFAULT_MIRRORING, now=None, buffer=None):
     uid = target_uid(occurrence.instance_key)
-    return build_target_event(occurrence, canonical, mirroring, uid, now=now)
+    return build_target_event(occurrence, canonical, mirroring, uid, now=now, buffer=buffer)
 
 
 def test_organizer_attendee_alarm_excluded_by_default():
@@ -151,3 +151,115 @@ def test_managed_provenance_properties_present():
     assert "X-CALMIRROR-SOURCE-UID:ev-1" in ics
     assert "X-CALMIRROR-RECURRENCE-ID:SINGLE" in ics
     assert "X-CALMIRROR-FINGERPRINT:" in ics
+
+
+# -- buffer ------------------------------------------------------------
+
+TIMED_ICS = """BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:ev-buf
+DTSTART;TZID=Europe/Berlin:20260110T100000
+DTEND;TZID=Europe/Berlin:20260110T110000
+SUMMARY:Meeting
+LOCATION:Berlin Office
+END:VEVENT
+END:VCALENDAR
+"""
+
+ALL_DAY_ICS = """BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:ev-allday
+DTSTART;VALUE=DATE:20260115
+DTEND;VALUE=DATE:20260116
+SUMMARY:All day
+LOCATION:Berlin Office
+END:VEVENT
+END:VCALENDAR
+"""
+
+DURATION_ICS = """BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:ev-dur
+DTSTART:20260110T100000Z
+DURATION:PT1H
+SUMMARY:Duration based
+LOCATION:Berlin Office
+END:VEVENT
+END:VCALENDAR
+"""
+
+
+def test_buffer_pads_start_and_end_of_timed_event():
+    occ = one_occurrence(TIMED_ICS)
+    desired = build(occ, buffer=BufferConfig(before_minutes=15, after_minutes=30))
+    assert desired.start.strftime("%H:%M") == "09:45"
+    assert desired.end.strftime("%H:%M") == "11:30"
+    ics = desired.ics_bytes.decode()
+    assert "DTSTART;TZID=Europe/Berlin:20260110T094500" in ics
+    assert "DTEND;TZID=Europe/Berlin:20260110T113000" in ics
+
+
+def test_no_buffer_leaves_original_times():
+    occ = one_occurrence(TIMED_ICS)
+    desired = build(occ)  # buffer=None -> BufferConfig() defaults to 0/0
+    assert desired.start.strftime("%H:%M") == "10:00"
+    assert desired.end.strftime("%H:%M") == "11:00"
+
+
+def test_buffer_only_before_or_only_after():
+    occ = one_occurrence(TIMED_ICS)
+    before_only = build(occ, buffer=BufferConfig(before_minutes=10, after_minutes=0))
+    assert before_only.start.strftime("%H:%M") == "09:50"
+    assert before_only.end.strftime("%H:%M") == "11:00"
+
+    after_only = build(occ, buffer=BufferConfig(before_minutes=0, after_minutes=20))
+    assert after_only.start.strftime("%H:%M") == "10:00"
+    assert after_only.end.strftime("%H:%M") == "11:20"
+
+
+def test_buffer_not_applied_to_all_day_events():
+    occ = one_occurrence(ALL_DAY_ICS)
+    desired = build(occ, buffer=BufferConfig(before_minutes=15, after_minutes=30))
+    assert desired.start.strftime("%Y%m%d") == "20260115"
+    assert desired.end.strftime("%Y%m%d") == "20260116"
+    assert desired.all_day is True
+
+
+def test_buffer_converts_duration_based_event_to_explicit_dtend():
+    occ = one_occurrence(DURATION_ICS)
+    desired = build(occ, buffer=BufferConfig(before_minutes=15, after_minutes=30))
+    ics = desired.ics_bytes.decode()
+    assert "DTEND:20260110T113000Z" in ics
+    assert "DURATION" not in ics
+
+
+def test_buffer_is_idempotent_across_rebuilds():
+    occ = one_occurrence(TIMED_ICS)
+    buf = BufferConfig(before_minutes=15, after_minutes=30)
+    a = build(occ, buffer=buf)
+    b = build(occ, buffer=buf)
+    assert a.fingerprint == b.fingerprint
+    assert a.start == b.start and a.end == b.end
+
+
+def test_buffer_changes_fingerprint_vs_unbuffered():
+    occ = one_occurrence(TIMED_ICS)
+    unbuffered = build(occ)
+    buffered = build(occ, buffer=BufferConfig(before_minutes=15, after_minutes=30))
+    assert unbuffered.fingerprint != buffered.fingerprint
+
+
+def test_fingerprint_recomputed_from_written_target_matches_buffered_original():
+    """Regression guard: change detection re-derives the fingerprint from
+    the target's actual re-read VEVENT (see reconcile.py). If that VEVENT
+    carries the buffered DTSTART/DTEND (as written), recomputing from it
+    must reproduce exactly the fingerprint stored at write time - or every
+    run would see a spurious, permanent "changed" for buffered events."""
+    occ = one_occurrence(TIMED_ICS)
+    desired = build(occ, buffer=BufferConfig(before_minutes=15, after_minutes=30))
+    written_back_vevents = parse_vevents(desired.ics_bytes.decode())
+    recomputed = compute_fingerprint(written_back_vevents[0], DEFAULT_MIRRORING)
+    assert recomputed == desired.fingerprint

@@ -275,6 +275,13 @@ window:
   lookahead_days: 180
   outside_window_policy: "retain"
 
+# Operator extension beyond the original schema: padding added around
+# each mirrored timed occurrence's effective DTSTART/DTEND in the target
+# calendar only (never the source, never all-day events). See section 13.
+buffer:
+  before_minutes: 0
+  after_minutes: 0
+
 mirroring:
   copy_description: true
   copy_url: true
@@ -448,6 +455,13 @@ The recurrence test matrix must include daily and weekly rules, finite and open-
 ## 13. Target Transformation
 
 Build a fresh target `VEVENT` from an allowlist instead of cloning the source component.
+
+**Operator extension:** if `buffer.before_minutes`/`buffer.after_minutes`
+are non-zero, the effective `DTSTART`/`DTEND` written to the target are
+padded earlier/later by that many minutes before any other step in this
+section runs - the fingerprint (section 14) is therefore computed from
+the *padded* values, so a second unchanged run stays a no-op. Padding is
+never applied to all-day (DATE) occurrences.
 
 Copied by default:
 

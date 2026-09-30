@@ -105,6 +105,13 @@ Edit `config/config.yaml` (see the comments and defaults in
 - `window.lookback_days` / `window.lookahead_days` — the rolling sync
   window. Events entirely outside this window are neither created nor
   touched.
+- `buffer.before_minutes` / `buffer.after_minutes` — padding added around
+  each mirrored *timed* occurrence in the target calendar: it starts
+  `before_minutes` earlier and ends `after_minutes` later than the
+  source event (e.g. travel or prep time before a meeting, wrap-up time
+  after it). The source event itself is never touched — only its copy in
+  the target calendar is padded. Never applied to all-day events. Both
+  default to `0` (mirror the exact source times).
 - `mirroring.*` — per-field toggles for what gets copied
   (`copy_description`, `copy_url`, `copy_categories`, `copy_alarms`,
   `copy_attendees`, `copy_organizer`; all default to a private-by-default

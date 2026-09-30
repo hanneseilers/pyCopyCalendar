@@ -142,7 +142,8 @@ def _read_sources(
                         continue
                     target_uid_value = compute_target_uid(occurrence.instance_key)
                     desired_instance = build_target_event(
-                        occurrence, canonical_location, config.mirroring, target_uid_value
+                        occurrence, canonical_location, config.mirroring, target_uid_value,
+                        buffer=config.buffer,
                     )
                     desired[desired_instance.instance_key] = desired_instance
         except (SourceReadError, IcalParseError, RecurrenceExpansionError) as exc:

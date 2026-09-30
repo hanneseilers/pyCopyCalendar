@@ -65,6 +65,15 @@ window:
   # rolling window are not deleted solely because time advanced.
   outside_window_policy: "retain"
 
+# Padding added around each mirrored *timed* occurrence's start and end
+# in the target calendar (e.g. travel/prep time before a meeting,
+# wrap-up time after it) - the source event itself is never touched.
+# Never applied to all-day events. 0 (the default) mirrors the exact
+# source times.
+buffer:
+  before_minutes: 0
+  after_minutes: 0
+
 mirroring:
   # Per-field toggles for what gets copied into the mirrored event.
   copy_description: true

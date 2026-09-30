@@ -13,13 +13,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from icalendar import Calendar as ICalendar
 from icalendar import Event as ICalEvent
 from icalendar import vText
 
-from .config import MirroringConfig
+from .config import BufferConfig, MirroringConfig
 from .models import (
     FINGERPRINT_PROP,
     MANAGED_PROP,
@@ -77,6 +77,20 @@ def _effective_end(vevent: ICalEvent, start):
     if duration is not None:
         return start + duration.dt
     return start
+
+
+def _apply_buffer(start, end, all_day: bool, buffer: BufferConfig):
+    """Pad a timed occurrence's start/end for the target calendar copy.
+    Never applied to all-day events - a "15 minutes before midnight"
+    buffer has no sensible meaning there, so DATE values pass through
+    unchanged regardless of configured buffer minutes."""
+    if all_day or (not buffer.before_minutes and not buffer.after_minutes):
+        return start, end
+    if buffer.before_minutes:
+        start = start - timedelta(minutes=buffer.before_minutes)
+    if buffer.after_minutes:
+        end = end + timedelta(minutes=buffer.after_minutes)
+    return start, end
 
 
 def _stripped_fields(config: MirroringConfig) -> set[str]:
@@ -152,13 +166,20 @@ def build_target_event(
     config: MirroringConfig,
     target_uid: str,
     *,
+    buffer: BufferConfig | None = None,
     now: datetime | None = None,
 ) -> DesiredInstance:
     """Transform one eligible RawOccurrence into a standalone target
     VEVENT and its semantic fingerprint."""
     now = now or datetime.now(timezone.utc)
+    buffer = buffer or BufferConfig()
     src = occurrence.vevent
     stripped = _stripped_fields(config)
+
+    buffered_start, buffered_end = _apply_buffer(
+        occurrence.start, occurrence.end, occurrence.all_day, buffer
+    )
+    buffered = buffered_start != occurrence.start or buffered_end != occurrence.end
 
     event = ICalEvent()
     event.add("UID", target_uid)
@@ -167,10 +188,14 @@ def build_target_event(
     if "SUMMARY" not in stripped:
         event.add("SUMMARY", src.get("SUMMARY", vText("")))
 
-    event.add("DTSTART", occurrence.start)
+    event.add("DTSTART", buffered_start)
     dtend_prop = src.get("DTEND")
-    if dtend_prop is not None:
-        event.add("DTEND", occurrence.end)
+    if dtend_prop is not None or buffered:
+        # A source using DURATION instead of DTEND still gets an explicit
+        # DTEND once buffering changes the interval - preserving DURATION
+        # unmodified alongside a shifted DTSTART would silently un-do the
+        # "after" padding (DURATION is relative to DTSTART, not fixed).
+        event.add("DTEND", buffered_end)
     else:
         duration = src.get("DURATION")
         if duration is not None and "DURATION" not in stripped:
@@ -199,15 +224,20 @@ def build_target_event(
         _copy_all(src, event, "ATTENDEE")
 
     if config.copy_alarms:
+        # Copied as-is: a TRIGGER relative to DTSTART now counts from the
+        # buffered DTSTART, not the original occurrence time, if a buffer
+        # is configured.
         for sub in src.subcomponents:
             if sub.name == "VALARM":
                 event.add_component(sub)
 
-    # `src` already carries this occurrence's resolved DTSTART/DTEND/
-    # LOCATION (recurrence.py sets them to the concrete per-instance
-    # values), so it is exactly the input compute_fingerprint needs -
-    # no separate pass over `occurrence.start`/`.end`/`.location` required.
-    fingerprint = compute_fingerprint(src, config)
+    # Fingerprint from `event` itself, not `src`: its DTSTART/DTEND/
+    # LOCATION/etc are exactly what gets written to the target (buffered
+    # times included), so recomputing this same function later from a
+    # *re-read* target event - see reconcile.py's tamper-detection call -
+    # agrees with what was written here, rather than with the source's
+    # unbuffered original values.
+    fingerprint = compute_fingerprint(event, config)
 
     event.add(MANAGED_PROP, "1")
     event.add(SOURCE_PROP, occurrence.source_id)
@@ -228,8 +258,8 @@ def build_target_event(
         source_href=occurrence.source_href,
         source_etag=occurrence.source_etag,
         canonical_location=canonical_location,
-        start=occurrence.start,
-        end=occurrence.end,
+        start=buffered_start,
+        end=buffered_end,
         all_day=occurrence.all_day,
         summary=str(src.get("SUMMARY", "")),
         ics_bytes=ics_bytes,
