@@ -183,8 +183,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $values['timezone']        = trim((string) ($_POST['timezone'] ?? '')) ?: 'Europe/Berlin';
     $values['lookback_days']   = trim((string) ($_POST['lookback_days'] ?? '7'));
     $values['lookahead_days']  = trim((string) ($_POST['lookahead_days'] ?? '180'));
-    $values['buffer_before']   = trim((string) ($_POST['buffer_before'] ?? '0'));
-    $values['buffer_after']    = trim((string) ($_POST['buffer_after'] ?? '0'));
+    $values['buffer_before']   = trim((string) ($_POST['buffer_before'] ?? '0')) ?: '0';
+    $values['buffer_after']    = trim((string) ($_POST['buffer_after'] ?? '0')) ?: '0';
     $values['dry_run_default'] = isset($_POST['dry_run_default']) ? '1' : '0';
 
     $postedSourceIds  = $_POST['source_id'] ?? [];
