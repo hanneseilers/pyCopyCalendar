@@ -220,6 +220,26 @@ racing it.
 
 ## Troubleshooting
 
+If the connection to Nextcloud is rejected when run from your own
+machine, that alone doesn't tell you *why* — it could be the WAF/
+User-Agent issue above, or something specific to your network/IP
+(residential IPs are treated differently by some WAFs/CDNs than hosting
+IPs, and Nextcloud's own brute-force protection can temporarily throttle
+an IP after repeated failed attempts during testing). `strato_connection_test.sh`
+in the project root runs the same checks (config validation, a raw
+`curl` PROPFIND, and this application's own `--preflight`) directly on
+the target webspace over SSH, so you can compare the result from there
+against your own machine and tell the two apart:
+
+```bash
+scp -r . youruser@your-strato-host:/path/to/calendar-sync
+ssh youruser@your-strato-host
+cd /path/to/calendar-sync
+./strato_connection_test.sh
+```
+
+It never prints the app password and makes no changes to Nextcloud.
+
 - **Exit code `2`**: invalid configuration or project layout — see
   stderr for the specific validation error; nothing was touched.
 - **Exit code `3`**: authentication/authorization failure, or the target
