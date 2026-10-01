@@ -63,11 +63,12 @@ executed, and is gitignored; never commit it.
 If PHP is available on your webspace, `setup.php` in the project root is
 a one-time browser-based alternative to editing `config/config.yaml` and
 `secrets/nextcloud.env` by hand: it shows a form for the full
-configuration, including the Nextcloud username and app password, and
-only writes both files after actually testing the connection to
-Nextcloud with what you entered (via this application's own
-`--validate-config` and `--preflight`) — nothing is kept if that test
-fails, both files are removed again and the form is re-shown. On
+configuration, including the Nextcloud username and app password, one
+required and one optional source calendar, and the title-override
+settings below, and only writes both files after actually testing the
+connection to Nextcloud with what you entered (via this application's
+own `--validate-config` and `--preflight`) — nothing is kept if that
+test fails, both files are removed again and the form is re-shown. On
 success it deletes itself; if it's ever loaded while either
 `config/config.yaml` or `secrets/nextcloud.env` already exists, it does
 nothing and deletes itself again instead of showing the form. It can
@@ -90,7 +91,10 @@ Edit `config/config.yaml` (see the comments and defaults in
   `https://your-domain/remote.php/dav/`.
 - `sources[]` — one entry per source calendar: a stable `id` (used to
   namespace UIDs so the same event UID from two different calendars
-  never collides in the target) and its exact CalDAV `calendar_url`.
+  never collides in the target) and its exact CalDAV `calendar_url`. One
+  source calendar is enough; add a second (or more) by listing further
+  entries — `setup.php`'s form offers one required and one optional
+  source, the common case, but this file itself has no upper limit.
 - `target.calendar_url` — the calendar events are mirrored into. It must
   share the same Nextcloud origin as the sources and must not equal or
   be nested inside any source collection; this is enforced before any
@@ -112,6 +116,15 @@ Edit `config/config.yaml` (see the comments and defaults in
   after it). The source event itself is never touched — only its copy in
   the target calendar is padded. Never applied to all-day events. Both
   default to `0` (mirror the exact source times).
+- `summary_override.enabled` / `summary_override.replacement_text` — when
+  enabled, every mirrored event's title in the target calendar becomes
+  the fixed `replacement_text` (e.g. `"Busy"`); the real title is moved
+  to the front of the target event's `DESCRIPTION` instead (ahead of the
+  real description, if `mirroring.copy_description` is also on), so a
+  shared calendar shows no details while the mirror still records what
+  the event actually is. The source event's own title is never touched.
+  `replacement_text` is required when `enabled` is `true`. Off by
+  default.
 - `mirroring.*` — per-field toggles for what gets copied
   (`copy_description`, `copy_url`, `copy_categories`, `copy_alarms`,
   `copy_attendees`, `copy_organizer`; all default to a private-by-default

@@ -282,6 +282,13 @@ buffer:
   before_minutes: 0
   after_minutes: 0
 
+# Operator extension beyond the original schema: replace the mirrored
+# event's SUMMARY with a fixed text, moving the real title to the front
+# of DESCRIPTION instead. Source event untouched. See section 13.
+summary_override:
+  enabled: false
+  replacement_text: "Busy"
+
 mirroring:
   copy_description: true
   copy_url: true
@@ -462,6 +469,15 @@ padded earlier/later by that many minutes before any other step in this
 section runs - the fingerprint (section 14) is therefore computed from
 the *padded* values, so a second unchanged run stays a no-op. Padding is
 never applied to all-day (DATE) occurrences.
+
+**Operator extension:** if `summary_override.enabled` is true, `SUMMARY`
+is replaced with the fixed `summary_override.replacement_text`, and the
+occurrence's real effective `SUMMARY` is prepended (as its own paragraph,
+ahead of the real `DESCRIPTION` when `mirroring.copy_description` also
+applies) to the target's `DESCRIPTION`. The fingerprint (section 14) then
+always includes `DESCRIPTION` in this mode, independent of
+`mirroring.copy_description`, since that field - not the now-constant
+`SUMMARY` - is what must change when the source event is renamed.
 
 Copied by default:
 

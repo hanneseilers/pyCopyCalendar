@@ -26,7 +26,10 @@ nextcloud:
 # Display name(s) don't matter here - use the calendar's exact CalDAV
 # collection URL (see README's "Finding calendar URLs"). "id" must be
 # stable and unique; it namespaces UIDs so the same event UID from two
-# different source calendars never collides in the target.
+# different source calendars never collides in the target. One source
+# is enough; list as many as you have (setup.php's wizard offers one
+# required plus one optional, the common case, but this file isn't
+# limited to two).
 sources:
   - id: "department-a"
     calendar_url: "https://cloud.example.invalid/remote.php/dav/calendars/user/source-a/"
@@ -73,6 +76,17 @@ window:
 buffer:
   before_minutes: 0
   after_minutes: 0
+
+# Replace the mirrored event's title in the target calendar with a fixed
+# text, moving the real title to the front of its DESCRIPTION instead
+# (e.g. show "Busy" on a shared calendar without disclosing what the
+# meeting actually is, while still recording it for whoever manages the
+# mirror - and still detecting a real rename on the next run). The
+# source event itself is never touched. replacement_text is required
+# when enabled is true.
+summary_override:
+  enabled: false
+  replacement_text: "Busy"
 
 mirroring:
   # Per-field toggles for what gets copied into the mirrored event.
