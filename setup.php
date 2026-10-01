@@ -170,8 +170,10 @@ $values = [
     'lookahead_days'    => '180',
     'buffer_before'     => '0',
     'buffer_after'      => '0',
+    'summary_override_enabled' => '0',
+    'summary_override_text'    => '',
     'dry_run_default'   => '1',
-    'sources'           => [['id' => '', 'url' => ''], ['id' => '', 'url' => ''], ['id' => '', 'url' => '']],
+    'sources'           => [['id' => '', 'url' => ''], ['id' => '', 'url' => '']],
     'locations'         => [['canonical' => '', 'aliases' => ''], ['canonical' => '', 'aliases' => ''], ['canonical' => '', 'aliases' => '']],
 ];
 
@@ -185,6 +187,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $values['lookahead_days']  = trim((string) ($_POST['lookahead_days'] ?? '180'));
     $values['buffer_before']   = trim((string) ($_POST['buffer_before'] ?? '0')) ?: '0';
     $values['buffer_after']    = trim((string) ($_POST['buffer_after'] ?? '0')) ?: '0';
+    $values['summary_override_enabled'] = isset($_POST['summary_override_enabled']) ? '1' : '0';
+    $values['summary_override_text']    = trim((string) ($_POST['summary_override_text'] ?? ''));
     $values['dry_run_default'] = isset($_POST['dry_run_default']) ? '1' : '0';
 
     $postedSourceIds  = $_POST['source_id'] ?? [];
@@ -197,7 +201,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($id !== '' && $url !== '') {
             $sources[] = ['id' => $id, 'url' => $url];
         } elseif ($id !== '' || $url !== '') {
-            $errors[] = 'Quellkalender Zeile ' . ($i + 1) . ': bitte ID UND URL angeben (oder beide Felder leer lassen).';
+            $errors[] = 'Quellkalender ' . ($i + 1) . ': bitte ID UND URL angeben (oder beide Felder leer lassen).';
+        } elseif ($i === 0) {
+            $errors[] = 'Quellkalender 1 ist Pflicht (ID + URL).';
         }
     }
 
@@ -234,9 +240,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($values['target_url'] === '' || !preg_match('#^https://#i', $values['target_url'])) {
         $errors[] = 'Ziel-Kalender-URL fehlt oder beginnt nicht mit https://.';
     }
-    if (!$sources) {
-        $errors[] = 'Mindestens ein Quellkalender (ID + URL) muss angegeben werden.';
-    }
     $sourceIds = array_map(fn($s) => $s['id'], $sources);
     if (count($sourceIds) !== count(array_unique($sourceIds))) {
         $errors[] = 'Quellkalender-IDs müssen eindeutig sein.';
@@ -249,6 +252,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     if (!ctype_digit($values['buffer_before']) || !ctype_digit($values['buffer_after'])) {
         $errors[] = 'Puffer vor/nach Terminen müssen positive ganze Zahlen (Minuten) sein.';
+    }
+    if ($values['summary_override_enabled'] === '1' && $values['summary_override_text'] === '') {
+        $errors[] = 'Ersatztitel fehlt (erforderlich, wenn "Titel ersetzen" aktiviert ist).';
     }
     if (!is_dir($configDir) || !is_dir($secretsDir)) {
         $errors[] = 'config/ oder secrets/ Verzeichnis fehlt - wurde das ganze Projekt korrekt hochgeladen?';
@@ -293,6 +299,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $yaml .= "buffer:\n";
         $yaml .= '  before_minutes: ' . (int) $values['buffer_before'] . "\n";
         $yaml .= '  after_minutes: ' . (int) $values['buffer_after'] . "\n\n";
+
+        $yaml .= "summary_override:\n";
+        $yaml .= '  enabled: ' . ($values['summary_override_enabled'] === '1' ? 'true' : 'false') . "\n";
+        $yaml .= '  replacement_text: ' . yamlStr($values['summary_override_text']) . "\n\n";
 
         $yaml .= "mirroring:\n";
         $yaml .= "  copy_description: true\n";
@@ -392,7 +402,9 @@ if ($testOutput !== '') {
 
 $sourceRows = '';
 foreach ($values['sources'] as $i => $s) {
-    $sourceRows .= '<div class="row"><div><label>ID</label>'
+    $label = $i === 0 ? 'Quellkalender 1 (Pflicht)' : 'Quellkalender 2 (optional)';
+    $sourceRows .= '<p class="hint"><strong>' . h($label) . '</strong></p>'
+        . '<div class="row"><div><label>ID</label>'
         . '<input type="text" name="source_id[]" value="' . h($s['id']) . '" placeholder="z.B. dept-a"></div>'
         . '<div><label>Kalender-URL</label>'
         . '<input type="url" name="source_url[]" value="' . h($s['url']) . '" placeholder="https://.../remote.php/dav/calendars/user/quelle/"></div></div>';
@@ -416,6 +428,8 @@ $lookbackEsc  = h($values['lookback_days']);
 $lookaheadEsc = h($values['lookahead_days']);
 $bufBeforeEsc = h($values['buffer_before']);
 $bufAfterEsc  = h($values['buffer_after']);
+$summaryOverrideChecked = $values['summary_override_enabled'] === '1' ? ' checked' : '';
+$summaryOverrideTextEsc = h($values['summary_override_text']);
 
 $form = <<<HTML
 <h1>calendar-sync einrichten</h1>
@@ -438,7 +452,7 @@ getestet und bestätigt wurde. Dieses Skript löscht sich danach selbst.</p>
 </fieldset>
 
 <fieldset>
-<legend>Quellkalender (bis zu 3, leere Zeilen werden ignoriert)</legend>
+<legend>Quellkalender (ein oder zwei)</legend>
 {$sourceRows}
 </fieldset>
 
@@ -470,6 +484,14 @@ getestet und bestätigt wurde. Dieses Skript löscht sich danach selbst.</p>
 <div><label>Puffer danach (Minuten)</label><input type="text" name="buffer_after" value="{$bufAfterEsc}"></div>
 </div>
 <div class="hint">Jeder gespiegelte Termin im Zielkalender beginnt entsprechend früher und endet entsprechend später als im Quellkalender (z.B. Anfahrt/Nachbereitung). Gilt nicht für ganztägige Termine. 0 = kein Puffer.</div>
+</fieldset>
+
+<fieldset>
+<legend>Titel im Zielkalender ersetzen (optional)</legend>
+<label><input type="checkbox" name="summary_override_enabled" value="1"{$summaryOverrideChecked}> Titel durch festen Ersatztext ersetzen</label>
+<label>Ersatztitel</label>
+<input type="text" name="summary_override_text" value="{$summaryOverrideTextEsc}" placeholder="z.B. Besetzt">
+<div class="hint">Wenn aktiviert, steht im Zielkalender statt des echten Titels immer dieser Text; der echte Titel wird stattdessen an den Anfang der Beschreibung geschrieben (vor einer ggf. kopierten echten Beschreibung).</div>
 </fieldset>
 
 <button type="submit">Speichern &amp; Verbindung testen</button>
