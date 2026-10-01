@@ -161,3 +161,39 @@ def test_buffer_rejects_negative_minutes(tmp_path, field):
     path, root = write_config(tmp_path, cfg)
     with pytest.raises(ConfigError, match="buffer"):
         load_config(path, project_root=root)
+
+
+def test_summary_override_defaults_to_disabled(tmp_path):
+    path, root = write_config(tmp_path, base_config())
+    config = load_config(path, project_root=root)
+    assert config.summary_override.enabled is False
+    assert config.summary_override.replacement_text == ""
+
+
+def test_summary_override_values_are_applied(tmp_path):
+    cfg = base_config(summary_override={"enabled": True, "replacement_text": "Busy"})
+    path, root = write_config(tmp_path, cfg)
+    config = load_config(path, project_root=root)
+    assert config.summary_override.enabled is True
+    assert config.summary_override.replacement_text == "Busy"
+
+
+def test_summary_override_enabled_requires_replacement_text(tmp_path):
+    cfg = base_config(summary_override={"enabled": True, "replacement_text": ""})
+    path, root = write_config(tmp_path, cfg)
+    with pytest.raises(ConfigError, match="summary_override"):
+        load_config(path, project_root=root)
+
+
+def test_summary_override_enabled_rejects_blank_replacement_text(tmp_path):
+    cfg = base_config(summary_override={"enabled": True, "replacement_text": "   "})
+    path, root = write_config(tmp_path, cfg)
+    with pytest.raises(ConfigError, match="summary_override"):
+        load_config(path, project_root=root)
+
+
+def test_summary_override_disabled_allows_blank_replacement_text(tmp_path):
+    cfg = base_config(summary_override={"enabled": False, "replacement_text": ""})
+    path, root = write_config(tmp_path, cfg)
+    config = load_config(path, project_root=root)
+    assert config.summary_override.enabled is False

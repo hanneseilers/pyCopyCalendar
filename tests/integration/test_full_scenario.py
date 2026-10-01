@@ -188,3 +188,67 @@ def test_two_sources_location_filter_buffer_and_propagation(wire_fake_transport,
         if m in ("PUT", "POST", "PATCH", "DELETE") and ("/source-a/" in u or "/source-b/" in u)
     ]
     assert source_mutations == []
+
+
+def test_summary_override_with_single_source_through_full_pipeline(wire_fake_transport, credentials, repo, tmp_path):
+    """Single source calendar (the "one source is enough" case), with
+    summary_override + buffer both active through the real reconcile
+    pipeline: initial create, idempotent second run, a source rename
+    correctly detected and propagated, then source deletion."""
+    fake = wire_fake_transport
+    src = fake.add_collection("/remote.php/dav/calendars/user/source-a/", "Source A")
+    tgt = fake.add_collection("/remote.php/dav/calendars/user/target/", "Target")
+
+    src.objects["/remote.php/dav/calendars/user/source-a/c1.ics"] = FakeObject(
+        event_ics("confidential-1", summary="Confidential 1:1 with Alice", location="Berlin Office",
+                   start="20260109T090000Z", end="20260109T100000Z"),
+        '"c1-e1"',
+    )
+
+    config = make_config(
+        tmp_path, source_ids=("dept-a",),
+        locations=(CanonicalLocation(canonical="Berlin Office", aliases=("Berlin Office",)),),
+        buffer_before_minutes=15, buffer_after_minutes=30,
+        summary_override_enabled=True, summary_override_text="Busy",
+    )
+
+    # === Run 1: create, with override + buffer both visible in the actual target content ===
+    summary = reconcile.run(config, credentials, repo, dry_run=False, now=FIXED_NOW)
+    assert summary.created == 1
+    assert len(tgt.objects) == 1
+    (_, obj) = next(iter(tgt.objects.items()))
+    assert "SUMMARY:Busy" in obj.ics_text
+    assert "Confidential 1:1 with Alice" in obj.ics_text
+    assert "DTSTART:20260109T084500Z" in obj.ics_text  # buffered
+    assert "DTEND:20260109T103000Z" in obj.ics_text
+
+    # === Run 2: unchanged -> zero writes ===
+    fake.requests.clear()
+    summary = reconcile.run(config, credentials, repo, dry_run=False, now=FIXED_NOW)
+    assert summary.created == 0 and summary.updated == 0 and summary.deleted == 0
+    assert summary.unchanged == 1
+    mutating = [(m, u) for m, u in fake.requests if m in ("PUT", "POST", "PATCH", "DELETE")]
+    assert mutating == []
+
+    # === Run 3: source renamed -> must be detected and propagated, even
+    # though the target's SUMMARY itself never changes (still "Busy") ===
+    src.objects["/remote.php/dav/calendars/user/source-a/c1.ics"] = FakeObject(
+        event_ics("confidential-1", summary="Confidential 1:1 with Bob", location="Berlin Office",
+                   start="20260109T090000Z", end="20260109T100000Z"),
+        '"c1-e2"',
+    )
+    summary = reconcile.run(config, credentials, repo, dry_run=False, now=FIXED_NOW)
+    assert summary.updated == 1
+    assert summary.created == 0 and summary.deleted == 0
+    (_, obj) = next(iter(tgt.objects.items()))
+    assert "SUMMARY:Busy" in obj.ics_text  # the replacement title never changes
+    assert "Confidential 1:1 with Bob" in obj.ics_text  # but the real title in DESCRIPTION did
+
+    # === Run 4: source deleted -> target copy removed ===
+    del src.objects["/remote.php/dav/calendars/user/source-a/c1.ics"]
+    summary = reconcile.run(config, credentials, repo, dry_run=False, now=FIXED_NOW, allow_large_delete=True)
+    assert summary.deleted == 1
+    assert len(tgt.objects) == 0
+
+    source_mutations = [(m, u) for m, u in fake.requests if m in ("PUT", "POST", "PATCH", "DELETE") and "/source-a/" in u]
+    assert source_mutations == []

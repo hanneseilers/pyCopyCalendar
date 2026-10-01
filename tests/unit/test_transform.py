@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from calendar_sync.config import BufferConfig, MirroringConfig
+from calendar_sync.config import BufferConfig, MirroringConfig, SummaryOverrideConfig
 from calendar_sync.ical import parse_vevents
 from calendar_sync.models import target_uid
 from calendar_sync.recurrence import expand_source_object
@@ -43,9 +43,11 @@ END:VCALENDAR
 """
 
 
-def build(occurrence, canonical="Berlin Office", mirroring=DEFAULT_MIRRORING, now=None, buffer=None):
+def build(occurrence, canonical="Berlin Office", mirroring=DEFAULT_MIRRORING, now=None, buffer=None, summary_override=None):
     uid = target_uid(occurrence.instance_key)
-    return build_target_event(occurrence, canonical, mirroring, uid, now=now, buffer=buffer)
+    return build_target_event(
+        occurrence, canonical, mirroring, uid, now=now, buffer=buffer, summary_override=summary_override
+    )
 
 
 def test_organizer_attendee_alarm_excluded_by_default():
@@ -263,3 +265,118 @@ def test_fingerprint_recomputed_from_written_target_matches_buffered_original():
     written_back_vevents = parse_vevents(desired.ics_bytes.decode())
     recomputed = compute_fingerprint(written_back_vevents[0], DEFAULT_MIRRORING)
     assert recomputed == desired.fingerprint
+
+
+# -- summary_override ---------------------------------------------------
+
+CONFIDENTIAL_ICS = """BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:ev-confidential
+DTSTART:20260110T100000Z
+DTEND:20260110T110000Z
+SUMMARY:Confidential 1:1 with Alice
+DESCRIPTION:Discuss salary
+LOCATION:Berlin Office
+END:VEVENT
+END:VCALENDAR
+"""
+
+OVERRIDE = SummaryOverrideConfig(enabled=True, replacement_text="Busy")
+
+
+def test_summary_override_disabled_leaves_title_and_description_unchanged():
+    occ = one_occurrence(CONFIDENTIAL_ICS)
+    desired = build(occ)  # summary_override=None -> disabled
+    ics = desired.ics_bytes.decode()
+    assert "SUMMARY:Confidential 1:1 with Alice" in ics
+    assert "DESCRIPTION:Discuss salary" in ics
+
+
+def test_summary_override_replaces_title_and_prepends_original_to_description():
+    occ = one_occurrence(CONFIDENTIAL_ICS)
+    desired = build(occ, summary_override=OVERRIDE)
+    ics = desired.ics_bytes.decode()
+    assert "SUMMARY:Busy" in ics
+    assert "Confidential 1:1 with Alice" not in ics.split("DESCRIPTION:", 1)[0]
+    description = ics.split("DESCRIPTION:", 1)[1]
+    assert description.startswith("Confidential 1:1 with Alice")
+    assert "Discuss salary" in description
+
+
+def test_summary_override_operator_facing_summary_field_keeps_real_title():
+    """DesiredInstance.summary is used for operator-facing log lines, not
+    written into the target calendar - it must keep showing the real
+    title regardless of the override."""
+    occ = one_occurrence(CONFIDENTIAL_ICS)
+    desired = build(occ, summary_override=OVERRIDE)
+    assert desired.summary == "Confidential 1:1 with Alice"
+
+
+def test_summary_override_without_description_copy_still_preserves_original_title():
+    mirroring = MirroringConfig(
+        copy_description=False, copy_url=True, copy_categories=True,
+        copy_alarms=False, copy_attendees=False, copy_organizer=False,
+    )
+    occ = one_occurrence(CONFIDENTIAL_ICS)
+    desired = build(occ, mirroring=mirroring, summary_override=OVERRIDE)
+    ics = desired.ics_bytes.decode()
+    assert "SUMMARY:Busy" in ics
+    assert "Confidential 1:1 with Alice" in ics
+    assert "Discuss salary" not in ics  # real description correctly still excluded
+
+
+def test_summary_override_respects_description_strip_field():
+    """An operator who explicitly stripped DESCRIPTION gets no DESCRIPTION
+    at all - not even the original title - since strip_fields is a
+    stronger, more specific directive than summary_override's default
+    behavior."""
+    mirroring = MirroringConfig(
+        copy_description=True, copy_url=True, copy_categories=True,
+        copy_alarms=False, copy_attendees=False, copy_organizer=False,
+        strip_fields=("DESCRIPTION",),
+    )
+    occ = one_occurrence(CONFIDENTIAL_ICS)
+    desired = build(occ, mirroring=mirroring, summary_override=OVERRIDE)
+    ics = desired.ics_bytes.decode()
+    assert "SUMMARY:Busy" in ics
+    assert "DESCRIPTION" not in ics
+
+
+def test_summary_override_is_idempotent():
+    occ = one_occurrence(CONFIDENTIAL_ICS)
+    a = build(occ, summary_override=OVERRIDE)
+    b = build(occ, summary_override=OVERRIDE)
+    assert a.fingerprint == b.fingerprint
+
+
+def test_summary_override_fingerprint_roundtrip_from_written_target():
+    occ = one_occurrence(CONFIDENTIAL_ICS)
+    desired = build(occ, summary_override=OVERRIDE)
+    written_back = parse_vevents(desired.ics_bytes.decode())
+    recomputed = compute_fingerprint(written_back[0], DEFAULT_MIRRORING, OVERRIDE)
+    assert recomputed == desired.fingerprint
+
+
+def test_summary_override_detects_source_rename_even_with_copy_description_off():
+    """Regression guard: with SUMMARY forced to a constant, DESCRIPTION is
+    the only field left that can reflect a source title change - it must
+    therefore always participate in the fingerprint when the override is
+    active, even if mirroring.copy_description is off."""
+    mirroring = MirroringConfig(
+        copy_description=False, copy_url=True, copy_categories=True,
+        copy_alarms=False, copy_attendees=False, copy_organizer=False,
+    )
+    occ_a = one_occurrence(CONFIDENTIAL_ICS)
+    occ_b = one_occurrence(CONFIDENTIAL_ICS.replace("with Alice", "with Bob"))
+    a = build(occ_a, mirroring=mirroring, summary_override=OVERRIDE)
+    b = build(occ_b, mirroring=mirroring, summary_override=OVERRIDE)
+    assert a.fingerprint != b.fingerprint
+
+
+def test_summary_override_enabled_still_writes_managed_provenance():
+    occ = one_occurrence(CONFIDENTIAL_ICS)
+    desired = build(occ, summary_override=OVERRIDE)
+    ics = desired.ics_bytes.decode()
+    assert "X-CALMIRROR-MANAGED:1" in ics
+    assert "X-CALMIRROR-FINGERPRINT:" in ics
