@@ -13,6 +13,7 @@ from calendar_sync.config import (
     SafetyConfig,
     SourceConfig,
     StorageConfig,
+    SummaryOverrideConfig,
     TargetConfig,
     WindowConfig,
 )
@@ -63,7 +64,8 @@ def credentials():
 
 def make_config(tmp_path, *, source_ids=("dept-a",), require_all_sources=True,
                  max_delete_ratio=1.0, max_deletes_absolute=1000, max_runtime_seconds=60,
-                 locations=None, buffer_before_minutes=0, buffer_after_minutes=0):
+                 locations=None, buffer_before_minutes=0, buffer_after_minutes=0,
+                 summary_override_enabled=False, summary_override_text=""):
     urls = {"dept-a": SOURCE_A_URL, "dept-b": SOURCE_B_URL}
     sources = tuple(SourceConfig(id=sid, calendar_url=urls[sid], enabled=True) for sid in source_ids)
     locations = locations or (CanonicalLocation(canonical="Berlin Office", aliases=("Berlin Office",)),)
@@ -77,6 +79,7 @@ def make_config(tmp_path, *, source_ids=("dept-a",), require_all_sources=True,
     lf = LocationFilterConfig(match_mode="normalized_exact", case_sensitive=False, locations=locations)
     window = WindowConfig(timezone="Europe/Berlin", lookback_days=7, lookahead_days=180, outside_window_policy="retain")
     buffer = BufferConfig(before_minutes=buffer_before_minutes, after_minutes=buffer_after_minutes)
+    summary_override = SummaryOverrideConfig(enabled=summary_override_enabled, replacement_text=summary_override_text)
     mirroring = MirroringConfig(
         copy_description=True, copy_url=True, copy_categories=True,
         copy_alarms=False, copy_attendees=False, copy_organizer=False,
@@ -93,7 +96,8 @@ def make_config(tmp_path, *, source_ids=("dept-a",), require_all_sources=True,
 
     return Config(
         nextcloud=nc, sources=sources, target=target, location_filter=lf, window=window,
-        buffer=buffer, mirroring=mirroring, storage=storage, safety=safety, logging=logging_cfg,
+        buffer=buffer, summary_override=summary_override, mirroring=mirroring, storage=storage,
+        safety=safety, logging=logging_cfg,
         project_root=tmp_path,
         canonical_base=canonicalize_url(BASE), canonical_target=canonicalize_url(TARGET_URL),
         canonical_sources=tuple(canonicalize_url(urls[sid]) for sid in source_ids),

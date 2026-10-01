@@ -143,7 +143,7 @@ def _read_sources(
                     target_uid_value = compute_target_uid(occurrence.instance_key)
                     desired_instance = build_target_event(
                         occurrence, canonical_location, config.mirroring, target_uid_value,
-                        buffer=config.buffer,
+                        buffer=config.buffer, summary_override=config.summary_override,
                     )
                     desired[desired_instance.instance_key] = desired_instance
         except (SourceReadError, IcalParseError, RecurrenceExpansionError) as exc:
@@ -161,6 +161,7 @@ def _build_plan(
     window_end: datetime,
     failed_source_ids: set[str],
     mirroring_config,
+    summary_override_config=None,
 ) -> ReconciliationPlan:
     """Phase C: deterministic plan, sorted by instance key within each
     group, creates before updates before deletes."""
@@ -192,7 +193,9 @@ def _build_plan(
         # calendar UI is very unlikely to also touch that hidden property,
         # so trusting it alone would silently ignore tampering (spec
         # section 20: "altered managed target event is restored").
-        elif compute_fingerprint(managed_entry.vevent, mirroring_config) == desired_instance.fingerprint:
+        elif compute_fingerprint(
+            managed_entry.vevent, mirroring_config, summary_override_config
+        ) == desired_instance.fingerprint:
             plan.unchanged.append(
                 PlanAction(
                     change=ChangeType.UNCHANGED,
@@ -393,7 +396,8 @@ def run(
     # Phase C
     active_mappings = {row["instance_key"]: row for row in repo.all_active_mappings()}
     plan = _build_plan(
-        desired, active_mappings, target_gateway, window_start, window_end, failed_source_ids, config.mirroring
+        desired, active_mappings, target_gateway, window_start, window_end, failed_source_ids,
+        config.mirroring, config.summary_override,
     )
 
     try:
