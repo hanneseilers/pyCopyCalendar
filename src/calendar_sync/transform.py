@@ -19,7 +19,7 @@ from icalendar import Calendar as ICalendar
 from icalendar import Event as ICalEvent
 from icalendar import vText
 
-from .config import BufferConfig, MirroringConfig
+from .config import BufferConfig, MirroringConfig, SummaryOverrideConfig
 from .models import (
     FINGERPRINT_PROP,
     MANAGED_PROP,
@@ -102,7 +102,11 @@ def _stripped_fields(config: MirroringConfig) -> set[str]:
     return stripped
 
 
-def compute_fingerprint(vevent: ICalEvent, config: MirroringConfig) -> str:
+def compute_fingerprint(
+    vevent: ICalEvent,
+    config: MirroringConfig,
+    summary_override: SummaryOverrideConfig | None = None,
+) -> str:
     """Semantic fingerprint of exactly the fields that end up in the
     target VEVENT under `config` - and nothing else.
 
@@ -115,11 +119,26 @@ def compute_fingerprint(vevent: ICalEvent, config: MirroringConfig) -> str:
     make a stripped/disabled field's absence in the real target register
     as a permanent, spurious "changed" on every run.
     """
+    summary_override = summary_override or SummaryOverrideConfig()
     stripped = _stripped_fields(config)
     fields: dict = {}
 
-    if "SUMMARY" not in stripped:
+    if summary_override.enabled:
+        # SUMMARY is now a fixed, non-distinguishing replacement text;
+        # the original title (and the real description, if also copied)
+        # lives in DESCRIPTION instead, so it must drive change detection
+        # here regardless of config.copy_description - otherwise a
+        # renamed source event would never be noticed. (If the operator
+        # also stripped DESCRIPTION outright, that trade-off is theirs:
+        # no field reflects the original title at all.)
         fields["summary"] = str(vevent.get("SUMMARY", ""))
+        if "DESCRIPTION" not in stripped:
+            fields["description"] = str(vevent.get("DESCRIPTION", ""))
+    else:
+        if "SUMMARY" not in stripped:
+            fields["summary"] = str(vevent.get("SUMMARY", ""))
+        if config.copy_description and "DESCRIPTION" not in stripped and vevent.get("DESCRIPTION") is not None:
+            fields["description"] = str(vevent.get("DESCRIPTION"))
 
     start = vevent["DTSTART"].dt
     fields["dtstart"] = _dt_field(start)
@@ -129,7 +148,6 @@ def compute_fingerprint(vevent: ICalEvent, config: MirroringConfig) -> str:
         fields["location"] = str(vevent.get("LOCATION", ""))
 
     for name, enabled in (
-        ("DESCRIPTION", config.copy_description),
         ("URL", config.copy_url),
         ("CATEGORIES", config.copy_categories),
     ):
@@ -167,12 +185,14 @@ def build_target_event(
     target_uid: str,
     *,
     buffer: BufferConfig | None = None,
+    summary_override: SummaryOverrideConfig | None = None,
     now: datetime | None = None,
 ) -> DesiredInstance:
     """Transform one eligible RawOccurrence into a standalone target
     VEVENT and its semantic fingerprint."""
     now = now or datetime.now(timezone.utc)
     buffer = buffer or BufferConfig()
+    summary_override = summary_override or SummaryOverrideConfig()
     src = occurrence.vevent
     stripped = _stripped_fields(config)
 
@@ -185,7 +205,9 @@ def build_target_event(
     event.add("UID", target_uid)
     event.add("DTSTAMP", now)
 
-    if "SUMMARY" not in stripped:
+    if summary_override.enabled:
+        event.add("SUMMARY", summary_override.replacement_text)
+    elif "SUMMARY" not in stripped:
         event.add("SUMMARY", src.get("SUMMARY", vText("")))
 
     event.add("DTSTART", buffered_start)
@@ -204,8 +226,22 @@ def build_target_event(
     if "LOCATION" not in stripped:
         event.add("LOCATION", occurrence.location)
 
+    if "DESCRIPTION" not in stripped:
+        # summary_override moves the real title here (as the first
+        # paragraph) since it no longer appears as SUMMARY; the actual
+        # source DESCRIPTION, if copy_description is also on, follows
+        # after a blank line.
+        description_parts = []
+        if summary_override.enabled:
+            original_summary = str(src.get("SUMMARY", ""))
+            if original_summary:
+                description_parts.append(original_summary)
+        if config.copy_description and src.get("DESCRIPTION") is not None:
+            description_parts.append(str(src.get("DESCRIPTION")))
+        if description_parts:
+            event.add("DESCRIPTION", "\n\n".join(description_parts))
+
     optional_toggle_fields = {
-        "DESCRIPTION": config.copy_description,
         "URL": config.copy_url,
         "CATEGORIES": config.copy_categories,
     }
@@ -237,7 +273,7 @@ def build_target_event(
     # *re-read* target event - see reconcile.py's tamper-detection call -
     # agrees with what was written here, rather than with the source's
     # unbuffered original values.
-    fingerprint = compute_fingerprint(event, config)
+    fingerprint = compute_fingerprint(event, config, summary_override)
 
     event.add(MANAGED_PROP, "1")
     event.add(SOURCE_PROP, occurrence.source_id)
