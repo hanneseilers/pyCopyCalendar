@@ -96,6 +96,19 @@ class BufferConfig:
 
 
 @dataclass(frozen=True)
+class SummaryOverrideConfig:
+    """Replace the mirrored event's title with a fixed, configurable
+    text, moving the original title to the front of its DESCRIPTION
+    instead - e.g. to show "Busy" on a shared calendar without
+    disclosing what the meeting actually is, while still recording it
+    for whoever manages the mirror. Off by default (titles pass through
+    unchanged)."""
+
+    enabled: bool = False
+    replacement_text: str = ""
+
+
+@dataclass(frozen=True)
 class MirroringConfig:
     copy_description: bool
     copy_url: bool
@@ -140,6 +153,7 @@ class Config:
     location_filter: LocationFilterConfig
     window: WindowConfig
     buffer: BufferConfig
+    summary_override: SummaryOverrideConfig
     mirroring: MirroringConfig
     storage: StorageConfig
     safety: SafetyConfig
@@ -277,6 +291,17 @@ def load_config(config_path: Path, *, project_root: Path) -> Config:
         raise ConfigError("buffer.before_minutes and buffer.after_minutes must be >= 0.")
     buffer = BufferConfig(before_minutes=buffer_before, after_minutes=buffer_after)
 
+    summary_override_raw = raw.get("summary_override") or {}
+    summary_override_enabled = bool(summary_override_raw.get("enabled", False))
+    summary_override_text = str(summary_override_raw.get("replacement_text", ""))
+    if summary_override_enabled and not summary_override_text.strip():
+        raise ConfigError(
+            "summary_override.replacement_text must be non-empty when summary_override.enabled is true."
+        )
+    summary_override = SummaryOverrideConfig(
+        enabled=summary_override_enabled, replacement_text=summary_override_text
+    )
+
     mirroring_raw = raw.get("mirroring") or {}
     strip_fields = {str(f).upper() for f in (mirroring_raw.get("strip_fields") or [])}
     ignored = strip_fields & PROTECTED_STRIP_FIELDS
@@ -379,6 +404,7 @@ def load_config(config_path: Path, *, project_root: Path) -> Config:
         location_filter=location_filter,
         window=window,
         buffer=buffer,
+        summary_override=summary_override,
         mirroring=mirroring,
         storage=storage,
         safety=safety,
