@@ -11,14 +11,19 @@ come from a YAML config file.
 """
 
 import argparse
+import base64
 import hashlib
+import http.client
 import logging
 import os
+import ssl
 import sys
+from collections import namedtuple
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 
 import caldav
 import yaml
@@ -68,21 +73,122 @@ def resolve_password(nc: dict) -> str:
     return password
 
 
-def build_client(nc: dict) -> caldav.DAVClient:
-    verify_ssl = nc.get("verify_ssl", True)
-    if not verify_ssl:
-        import urllib3
+# Minimal stand-in for requests.auth.HTTPBasicAuth / niquests.auth.HTTPBasicAuth,
+# holding just what StdlibSession.request() reads off the "auth" object - this
+# keeps us independent of whichever HTTP library caldav itself depends on.
+BasicAuth = namedtuple("BasicAuth", ["username", "password"])
 
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    return caldav.DAVClient(
-        url=nc["url"],
-        username=nc["username"],
-        password=resolve_password(nc),
+
+class _StdlibResponse:
+    """Just enough of a requests.Response/niquests.Response for
+    caldav.davclient.DAVResponse to read across supported caldav versions:
+    status_code, reason, headers (case-insensitive, via http.client's own
+    email.message.Message), content and text."""
+
+    def __init__(self, status_code: int, reason: str, headers, content: bytes):
+        self.status_code = status_code
+        self.reason = reason
+        self.headers = headers
+        self.content = content
+
+    @property
+    def text(self) -> str:
+        return self.content.decode("utf-8", errors="replace")
+
+
+class StdlibSession:
+    """Drop-in replacement for the requests.Session/niquests.Session that
+    caldav.DAVClient normally builds internally, performing requests using
+    only Python's standard library (http.client + ssl).
+
+    Some hosting providers put a firewall in front of Nextcloud that
+    fingerprints and blocks the TLS/HTTP handshake produced by both
+    `requests` and `niquests`, while a plain stdlib connection (and curl)
+    gets through untouched - see the project README/history for how this
+    was diagnosed."""
+
+    def request(
+        self,
+        method: str,
+        url: str,
+        data=None,
+        headers=None,
+        proxies=None,
+        auth=None,
+        timeout=None,
+        verify=True,
+        cert=None,
+    ) -> _StdlibResponse:
+        parsed = urlsplit(url)
+        if isinstance(verify, str):
+            context = ssl.create_default_context(cafile=verify)
+        else:
+            context = ssl.create_default_context()
+            if verify is False:
+                context.check_hostname = False
+                context.verify_mode = ssl.CERT_NONE
+
+        send_headers = {str(k): str(v) for k, v in (headers or {}).items()}
+        if auth is not None:
+            username = getattr(auth, "username", None)
+            password = getattr(auth, "password", None)
+            if username is not None:
+                token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+                send_headers["Authorization"] = f"Basic {token}"
+
+        body = data
+        if isinstance(body, str):
+            body = body.encode("utf-8")
+        if isinstance(body, bytes):
+            # caldav's XML body builder emits a literal CRLF right after the
+            # XML declaration. Some hosting firewalls flag any embedded \r\n
+            # inside a request body as a CRLF-injection/request-smuggling
+            # attempt and block the request outright - normalize it away
+            # (irrelevant to XML parsing either way).
+            body = body.replace(b"\r\n", b"\n")
+
+        path = parsed.path or "/"
+        if parsed.query:
+            path += "?" + parsed.query
+
+        conn = http.client.HTTPSConnection(
+            parsed.hostname, parsed.port or 443, timeout=timeout, context=context
+        )
+        try:
+            conn.request(method, path, body=body, headers=send_headers)
+            resp = conn.getresponse()
+            content = resp.read()
+            return _StdlibResponse(resp.status, resp.reason, resp.headers, content)
+        finally:
+            conn.close()
+
+
+def make_client(url: str, username: str, password: str, verify_ssl: bool, user_agent: str) -> caldav.DAVClient:
+    client = caldav.DAVClient(
+        url=url,
+        username=username,
+        password=password,
         ssl_verify_cert=verify_ssl,
         # Some hosting providers put a WAF in front of Nextcloud that blocks
         # WebDAV requests carrying the HTTP client library's default
         # User-Agent (while allowing e.g. curl) - so send a plain one.
-        headers={"User-Agent": nc.get("user_agent", DEFAULT_USER_AGENT)},
+        headers={"User-Agent": user_agent},
+        # Set Basic auth upfront instead of letting caldav negotiate it
+        # lazily after a first 401 - one less round-trip, and it lets our
+        # StdlibSession read the credentials straight off this object.
+        auth=BasicAuth(username, password),
+    )
+    client.session = StdlibSession()
+    return client
+
+
+def build_client(nc: dict) -> caldav.DAVClient:
+    return make_client(
+        url=nc["url"],
+        username=nc["username"],
+        password=resolve_password(nc),
+        verify_ssl=nc.get("verify_ssl", True),
+        user_agent=nc.get("user_agent", DEFAULT_USER_AGENT),
     )
 
 
@@ -159,10 +265,13 @@ def find_calendar(principal: caldav.Principal, name: str) -> caldav.Calendar:
     raise LookupError(f"Calendar '{name}' not found. Available calendars: {available}")
 
 
-def find_or_create_calendar(principal: caldav.Principal, name: str) -> caldav.Calendar:
+def find_or_create_calendar(principal: caldav.Principal, name: str, dry_run: bool) -> Optional[caldav.Calendar]:
     try:
         return find_calendar(principal, name)
     except LookupError:
+        if dry_run:
+            log.info("[dry-run] would create target calendar '%s'", name)
+            return None
         log.info("Target calendar '%s' does not exist yet, creating it", name)
         return principal.make_calendar(name=name, supported_calendar_component_set=["VEVENT"])
 
@@ -297,21 +406,16 @@ def list_calendars(raw: dict) -> None:
 
 
 def sync(config: Config) -> None:
-    if not config.verify_ssl:
-        import urllib3
-
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-    client = caldav.DAVClient(
+    client = make_client(
         url=config.url,
         username=config.username,
         password=config.password,
-        ssl_verify_cert=config.verify_ssl,
-        headers={"User-Agent": config.user_agent},
+        verify_ssl=config.verify_ssl,
+        user_agent=config.user_agent,
     )
     principal = client.principal()
 
-    target_cal = find_or_create_calendar(principal, config.target_calendar)
+    target_cal = find_or_create_calendar(principal, config.target_calendar, config.dry_run)
     log.info("Source calendars: %s", ", ".join(config.source_calendars))
     log.info("Target calendar: %s", config.target_calendar)
 
@@ -342,7 +446,7 @@ def sync(config: Config) -> None:
 
     log.info("%d source item(s) match the configured locations", len(desired))
 
-    existing = get_managed_target_events(target_cal)
+    existing = get_managed_target_events(target_cal) if target_cal is not None else {}
 
     created = updated = deleted = unchanged = 0
 

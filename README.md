@@ -57,14 +57,26 @@ If the project folder lives inside a web-accessible document root (common
 on shared hosting), the included `.htaccess` blocks all HTTP access to it
 (Apache only) - only cron ever needs to reach these files.
 
+## Networking note
+
+Some hosting providers put a firewall in front of Nextcloud that blocks
+the TLS/HTTP handshake produced by Python's common HTTP libraries
+(`requests`, `niquests`) while still allowing e.g. `curl` through
+unaffected - observed on IONOS-hosted Nextcloud behind a Strato shared
+webspace. To work regardless, this script replaces `caldav`'s HTTP layer
+with a small stdlib-only (`http.client` + `ssl`) transport (see
+`StdlibSession` in `copy_calendar.py`), which behaves like `curl` on the
+wire. This means the `caldav` package version doesn't affect networking
+compatibility here - it's only used for its CalDAV/iCalendar logic.
+
 ## Configuration options (overview)
 
 See `config.example.yaml` for details, including:
 
 - `nextcloud.verify_ssl` / `password_env` (read the password from an
   environment variable instead)
-- `nextcloud.user_agent` (work around hosting firewalls that block WebDAV
-  requests from known HTTP library user agents)
+- `nextcloud.user_agent` (custom User-Agent header, in case a firewall
+  also filters on that)
 - `sync.match_case_sensitive`, `sync.time_window`
 - `sync.strip_fields` (drop fields like `DESCRIPTION` from the copies)
 - `logging.level` / `logging.file`
