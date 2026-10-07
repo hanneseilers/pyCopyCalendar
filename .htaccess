@@ -7,3 +7,19 @@
     Order allow,deny
     Deny from all
 </IfModule>
+
+# One deliberate exception: the one-time web setup wizard (see its own
+# header comment for the security model - access token, HTTPS-only,
+# self-deletes after a successful run, refuses if config/config.yaml
+# already exists). Remove this block once setup.php itself is gone -
+# it has nothing left to grant access to at that point, but there is no
+# reason to leave it around either.
+<Files "setup.php">
+    <IfModule mod_authz_core.c>
+        Require all granted
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Allow from all
+    </IfModule>
+</Files>

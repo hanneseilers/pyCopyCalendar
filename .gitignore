@@ -1,5 +1,15 @@
-# Project-specific
-config.yaml
+# Project-specific: runtime-generated/sensitive files stay local, only the
+# per-directory .htaccess deny files and safe examples are tracked.
+config/config.yaml
+secrets/*
+!secrets/.htaccess
+!secrets/nextcloud.env.example
+data/*
+!data/.htaccess
+logs/*
+!logs/.htaccess
+run/*
+!run/.htaccess
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
