@@ -1,6 +1,8 @@
 # Project-specific: runtime-generated/sensitive files stay local, only the
 # per-directory .htaccess deny files and safe examples are tracked.
 config/config.yaml
+config.yaml
+.claude/
 secrets/*
 !secrets/.htaccess
 !secrets/nextcloud.env.example
